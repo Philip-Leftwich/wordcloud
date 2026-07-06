@@ -2,6 +2,8 @@
 
 Wordcloud is a small R Shiny app for turning a column of free-text responses into an interactive word cloud. Users can upload a `.csv` or `.xlsx` file, choose the text column to analyze, click words to inspect matching responses, and export the result as standalone HTML, SVG, or PNG.
 
+Live app: https://philip-leftwich.github.io/wordcloud/
+
 ## Key features
 
 - Uploads `.csv` and `.xlsx` datasets
@@ -42,15 +44,17 @@ You can try the app with `prototypes/sample_data.csv`.
 
 This repository also includes a static export of the app for browser-only use.
 
+You can also use the published GitHub Pages version at https://philip-leftwich.github.io/wordcloud/.
+
 1. Install the `shinylive` package in a normal local R session.
 2. Run `scripts/export_and_serve.R`.
 3. Open the local URL printed by `httpuv`.
 
 The exported app must be served over `http://` or `https://`; opening the HTML directly with `file://` will not work.
 
-## Short explainer: React.js
+## Short explainer: D3
 
-React.js is a JavaScript library for building user interfaces from reusable components. It is commonly used for rich single-page web apps where UI state changes frequently. This project does **not** use React; this note is included to make that distinction clear because the app has a browser-based interface but is built with R Shiny plus a small amount of custom JavaScript for rendering and exporting the cloud.
+D3 is a JavaScript library for drawing interactive, data-driven graphics in the browser. In this project, the browser-side code uses D3 together with `d3.layout.cloud` to position and render the words, handle word selection, and support client-side export of the current cloud.
 
 ## Short explainer: shinylive
 
