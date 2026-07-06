@@ -2,7 +2,7 @@
 
 Wordcloud is a small R Shiny app for turning a column of free-text responses into an interactive word cloud. Users can upload a `.csv` or `.xlsx` file, choose the text column to analyse, click words to inspect matching statements, and export the result as standalone HTML, SVG, or PNG.
 
-## What the app does
+## Key features
 
 - Uploads `.csv` and `.xlsx` datasets
 - Lets the user choose which column contains the statements
@@ -50,7 +50,7 @@ The exported app must be served over `http://` or `https://`; opening the HTML d
 
 ## Short explainer: React.js
 
-React.js is a JavaScript library for building user interfaces from reusable components. It is commonly used for rich single-page web apps where UI state changes frequently. This project does **not** use React; its interface is built with R Shiny plus a small amount of custom JavaScript for rendering and exporting the cloud.
+React.js is a JavaScript library for building user interfaces from reusable components. It is commonly used for rich single-page web apps where UI state changes frequently. This project does **not** use React; this note is included to make that distinction clear because the app has a browser-based interface but is built with R Shiny plus a small amount of custom JavaScript for rendering and exporting the cloud.
 
 ## Short explainer: shinylive
 
