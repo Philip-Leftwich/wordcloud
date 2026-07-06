@@ -2,6 +2,51 @@
 
 Entries are reverse-chronological.
 
+## Step 3 — Embedded-mapping HTML export (GATE, highest risk)
+
+Added a "Download standalone HTML" button to `app/app.R`, next to the Step 1
+wordcloud. On click, the server captures the wordcloud's actual packed
+layout as an SVG string (`svglite::svgstring()`), embeds a term→statement
+mapping as JSON (`jsonlite::toJSON`), and hand-assembles a single HTML file
+(inline SVG + `<script>` + mapping) via `writeLines()` — no `htmlwidgets`,
+no `shinylive::export()`, no Pandoc involved in generating this file. The
+mapping is hardcoded for now (one illustrative statement per word); real
+statements arrive with file upload in a later step.
+
+**Click detection in the exported file** matches on the clicked SVG `<text>`
+element's own `textContent` (the word itself), not any `data-id`/`onclick`
+attribute. This needs no ggiraph or Shiny machinery at all once exported —
+the downloaded file has no R process and isn't running under webR, so
+nothing from Step 2's mechanism (or its `onclick` failure) applies to it.
+
+**Isolated prototypes run before wiring this in** (all committed under
+`prototypes/`, per CLAUDE.local.md's highest-risk-assumption guidance):
+- `step3_click_table.html`: hand-written, no R/Shiny/webR at all — confirmed
+  the `textContent`-matching click mechanism works standalone.
+- `download_test/`: minimal `downloadHandler` under webR — initially failed
+  with "file wasn't available on site" even for a plain text file, with no
+  console error. Traced to a known, documented bug: **Chromium issue
+  468227**, which breaks Shinylive/webR downloads in Chrome/Edge/Brave
+  (Firefox unaffected) unless the `download` HTML attribute is stripped from
+  the generated link. Fixed by overriding `downloadButton()` to clear
+  `tag$attribs$download` before the UI is built (now also applied in
+  `app/app.R`). Confirmed fixed the download after the workaround.
+- `svg_download_test/`: combined `svglite::svgstring()` capture + JSON
+  mapping + the Chromium workaround — confirmed the assembled file, once
+  downloaded, reproduces click-to-statement behaviour standalone.
+
+**Known blocker (unchanged from Step 2, still relevant):** local
+`shinylive::export()` remains broken for this app once `ggiraph` is a
+dependency (posit-dev/r-shinylive#150, open upstream). All verification for
+this step was done via the Shinylive online editor instead, matching Step 2.
+
+**Gate result: PASS.** Human-confirmed via the Shinylive online editor,
+using the actual `app/app.R`: the wordcloud renders, "Download standalone
+HTML" saves a file with no error, and the downloaded file — opened
+standalone, no R running — reproduces click-to-statement behaviour for the
+real packed wordcloud layout. The Step 2 click-test grid was also
+re-confirmed unaffected.
+
 ## Step 2 — Click capture via ggiraph data_id selection (GATE)
 
 Added `ggiraph` and a click-handler mechanism test to `app/app.R`: a small
