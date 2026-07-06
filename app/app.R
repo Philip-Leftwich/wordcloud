@@ -1,6 +1,7 @@
 library(shiny)
 library(ggplot2)
 library(ggwordcloud)
+library(ggiraph)
 library(tibble)
 
 # Hardcoded word/frequency data — Step 1 gate only.
@@ -29,9 +30,20 @@ words <- tribble(
   "upload",     5
 )
 
+# Simple grid layout for the click-handler mechanism test (Step 2 gate).
+# Not wordcloud packing — ggwordcloud has no ggiraph hooks, so making the
+# actual packed layout clickable is deferred to Step 3.
+words_grid <- words
+words_grid$x <- (seq_len(nrow(words_grid)) - 1) %% 5
+words_grid$y <- (seq_len(nrow(words_grid)) - 1) %/% 5
+
 ui <- fluidPage(
-  titlePanel("Wordcloud — Step 1 (static, hardcoded data)"),
-  plotOutput("cloud", height = "500px")
+  titlePanel("Wordcloud — Step 1/2 (static wordcloud + click-handler test)"),
+  plotOutput("cloud", height = "500px"),
+  hr(),
+  h4("Step 2 gate: click a word below"),
+  girafeOutput("click_test"),
+  verbatimTextOutput("clicked_word_display")
 )
 
 server <- function(input, output, session) {
@@ -40,6 +52,25 @@ server <- function(input, output, session) {
       geom_text_wordcloud() +
       scale_size_area(max_size = 20) +
       theme_minimal()
+  })
+
+  output$click_test <- renderGirafe({
+    p <- ggplot(words_grid, aes(x = x, y = y, label = word, size = freq)) +
+      geom_text_interactive(
+        aes(onclick = paste0(
+          "Shiny.setInputValue('clicked_word', '", word, "', {priority: 'event'})"
+        )),
+        colour = "steelblue"
+      ) +
+      scale_size_area(max_size = 10) +
+      theme_void() +
+      theme(legend.position = "none")
+    girafe(ggobj = p)
+  })
+
+  output$clicked_word_display <- renderText({
+    req(input$clicked_word)
+    paste("You clicked:", input$clicked_word)
   })
 }
 
