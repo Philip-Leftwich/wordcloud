@@ -1,14 +1,14 @@
 # Wordcloud
 
-Wordcloud is a small R Shiny app for turning a column of free-text responses into an interactive word cloud. Users can upload a `.csv` or `.xlsx` file, choose the text column to analyse, click words to inspect matching statements, and export the result as standalone HTML, SVG, or PNG.
+Wordcloud is a small R Shiny app for turning a column of free-text responses into an interactive word cloud. Users can upload a `.csv` or `.xlsx` file, choose the text column to analyze, click words to inspect matching responses, and export the result as standalone HTML, SVG, or PNG.
 
 ## Key features
 
 - Uploads `.csv` and `.xlsx` datasets
-- Lets the user choose which column contains the statements
+- Lets the user choose which column contains the responses
 - Removes common stop words before counting terms
 - Builds an interactive word cloud in the browser
-- Shows the source statements for any clicked word
+- Shows the source responses for any clicked word
 - Exports the current cloud in multiple formats
 
 ## Project structure
