@@ -140,7 +140,8 @@ server <- function(input, output, session) {
       scale_size_area(max_size = 10) +
       theme_void() +
       theme(legend.position = "none")
-    girafe(ggobj = p)
+    girafe(ggobj = p) %>%
+      girafe_options(opts_selection(type = "single"))
   })
 
   output$statement_table <- renderDT({
