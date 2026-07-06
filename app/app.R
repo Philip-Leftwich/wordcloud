@@ -27,7 +27,7 @@ ui <- fluidPage(
     "Upload a data file (.xlsx or .csv)",
     accept = c(".xlsx", ".csv")
   ),
-  uiOutput("column_selector"),
+  selectInput("statement_column", "Column containing the statements", choices = NULL),
   uiOutput("upload_message"),
   plotOutput("cloud", height = "500px"),
   downloadButton("download_html", "Download standalone HTML"),
@@ -62,11 +62,10 @@ server <- function(input, output, session) {
     data %>% mutate(statement_id = row_number())
   })
 
-  output$column_selector <- renderUI({
-    req(uploaded_data())
-    selectInput(
+  observeEvent(uploaded_data(), {
+    updateSelectInput(
+      session,
       "statement_column",
-      "Column containing the statements",
       choices = setdiff(names(uploaded_data()), "statement_id")
     )
   })
