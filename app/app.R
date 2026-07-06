@@ -57,9 +57,7 @@ server <- function(input, output, session) {
   output$click_test <- renderGirafe({
     p <- ggplot(words_grid, aes(x = x, y = y, label = word, size = freq)) +
       geom_text_interactive(
-        aes(onclick = paste0(
-          "Shiny.setInputValue('clicked_word', '", word, "', {priority: 'event'})"
-        )),
+        aes(data_id = word, tooltip = word),
         colour = "steelblue"
       ) +
       scale_size_area(max_size = 10) +
@@ -69,8 +67,8 @@ server <- function(input, output, session) {
   })
 
   output$clicked_word_display <- renderText({
-    req(input$clicked_word)
-    paste("You clicked:", input$clicked_word)
+    req(input$click_test_selected)
+    paste("You clicked:", input$click_test_selected)
   })
 }
 
