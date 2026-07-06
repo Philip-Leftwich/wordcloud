@@ -10,8 +10,7 @@ capture, no ggiraph, no file upload — those belong to later steps. Added
 `scripts/export_and_serve.R` to export the app via `{shinylive}` and serve it
 locally over HTTP for browser testing.
 
-**Gate result: PENDING.** This step requires human-run verification in a
-webR/browser session (cannot be run in this environment). To confirm:
-run `scripts/export_and_serve.R` locally, open the served URL, and check the
-wordcloud renders with no console errors — specifically no "package not
-available" error for `ggwordcloud` or `ggplot2` under webR.
+**Gate result: PASS.** Human-confirmed: `scripts/export_and_serve.R` exported
+and served the app; the wordcloud rendered in-browser under webR with no
+console errors. `ggwordcloud` and `ggplot2` are available in the webR
+package repository.
