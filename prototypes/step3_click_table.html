@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Step 3 prototype: click-to-statement table, no R</title>
+<style>
+  body { font-family: sans-serif; margin: 2rem; }
+  svg text { cursor: pointer; }
+  svg text:hover { fill: firebrick; }
+  #statements { margin-top: 1.5rem; }
+  #statements table { border-collapse: collapse; }
+  #statements td { border: 1px solid #ccc; padding: 0.4rem 0.8rem; }
+</style>
+</head>
+<body>
+
+<h1>Step 3 prototype: click a word</h1>
+<p>No R, no Shiny, no webR involved in this file at all &mdash; plain SVG + JS, opened directly from disk.</p>
+
+<svg width="500" height="220" viewBox="0 0 500 220">
+  <text x="40"  y="50"  font-size="34">shiny</text>
+  <text x="220" y="40"  font-size="20">webR</text>
+  <text x="60"  y="110" font-size="26">wordcloud</text>
+  <text x="280" y="110" font-size="18">ggiraph</text>
+  <text x="330" y="60"  font-size="15">export</text>
+  <text x="90"  y="170" font-size="22">click</text>
+  <text x="260" y="180" font-size="16">statement</text>
+</svg>
+
+<div id="statements">
+  <p id="placeholder">Click a word above to see its statements.</p>
+</div>
+
+<script>
+  // Hardcoded stand-in for the term -> statement mapping that would be
+  // embedded (as JSON) by the real export handler.
+  const mapping = {
+    "shiny": ["The app is built with Shiny.", "Shiny apps can run serverless via Shinylive."],
+    "webR": ["webR compiles R to WebAssembly.", "webR lets Shiny run with no server."],
+    "wordcloud": ["The wordcloud shows term frequency.", "Clicking a word filters the statement list."],
+    "ggiraph": ["ggiraph adds SVG interactivity to ggplot2 plots."],
+    "export": ["Users can export a standalone HTML file.", "The export has no Pandoc dependency."],
+    "click": ["Click capture uses a hand-bound JS handler."],
+    "statement": ["Each statement is a row from the uploaded data."]
+  };
+
+  const svg = document.querySelector("svg");
+  const statementsDiv = document.getElementById("statements");
+
+  svg.addEventListener("click", (event) => {
+    if (event.target.tagName !== "text") return;
+    const word = event.target.textContent;
+    const rows = mapping[word];
+
+    if (!rows) {
+      statementsDiv.innerHTML = "<p>No statements found for &ldquo;" + word + "&rdquo;.</p>";
+      return;
+    }
+
+    const tableRows = rows.map((s) => "<tr><td>" + s + "</td></tr>").join("");
+    statementsDiv.innerHTML =
+      "<h2>Statements containing &ldquo;" + word + "&rdquo;</h2>" +
+      "<table>" + tableRows + "</table>";
+  });
+</script>
+
+</body>
+</html>
