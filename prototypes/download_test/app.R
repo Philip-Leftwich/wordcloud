@@ -1,5 +1,11 @@
 library(shiny)
 
+downloadButton <- function(...) {
+  tag <- shiny::downloadButton(...)
+  tag$attribs$download <- NULL
+  tag
+}
+
 ui <- fluidPage(
   downloadButton("download_test", "Download test file")
 )
