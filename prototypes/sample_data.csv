@@ -1,7 +1,7 @@
-rating,comment
-4,The shiny app renders the wordcloud quickly and clearly
-5,I like how clicking a word shows the matching statements
-3,The wordcloud could use more colour options
-5,Exporting a standalone html file worked without any server
-2,The click handler was confusing at first but works now
-4,Uploading a csv file was straightforward and fast
+comment
+The shiny app renders the wordcloud quickly and clearly
+I like how clicking a word shows the matching statements
+The wordcloud could use more colour options
+Exporting a standalone html file worked without any server
+The click handler was confusing at first but works now
+Uploading a csv file was straightforward and fast

@@ -1,81 +1,182 @@
 library(shiny)
-library(ggplot2)
-library(ggwordcloud)
-library(ggiraph)
-library(tibble)
-library(svglite)
-library(jsonlite)
 library(dplyr)
+library(tibble)
+library(stringr)
+library(tidyr)
 library(tidytext)
 library(readxl)
 library(readr)
-library(DT)
+library(jsonlite) # attached is safe now: shiny::validate is qualified throughout
 
-# Chromium bug 468227 breaks Shinylive/webR downloads in Chrome/Edge/Brave
-# (Firefox unaffected) unless the download attribute is stripped from the
-# generated <a> tag. Confirmed fix during Step 3 prototyping.
-downloadButton <- function(...) {
-  tag <- shiny::downloadButton(...)
-  tag$attribs$download <- NULL
-  tag
+google_fonts_href <- paste0(
+  "https://fonts.googleapis.com/css2?",
+  "family=Lora&family=Merriweather&family=Montserrat&",
+  "family=Oswald&family=Source+Sans+3&display=swap"
+)
+
+font_choices <- c(
+  "Default sans" = "sans-serif",
+  "Lora (serif)" = "Lora",
+  "Merriweather (serif)" = "Merriweather",
+  "Montserrat" = "Montserrat",
+  "Oswald (condensed)" = "Oswald",
+  "Source Sans 3" = "Source Sans 3"
+)
+
+palette_choices <- c("Viridis", "Magma", "Blues", "Warm", "Steel")
+
+# Colour logic stays in R. viridisLite is already a ggplot2 dependency,
+# but ggplot2 itself is no longer needed, so viridisLite is called direct.
+palette_colours <- function(name, values) {
+  ramp <- switch(
+    name,
+    Viridis = function(n) viridisLite::viridis(n, begin = 0.10, end = 0.90),
+    Magma = function(n) viridisLite::magma(n, begin = 0.15, end = 0.85),
+    Blues = grDevices::colorRampPalette(c("#9ecae1", "#08306b")),
+    Warm = grDevices::colorRampPalette(c("#fdae61", "#a50026")),
+    Steel = grDevices::colorRampPalette(c("#a8b8c8", "#1f4e79"))
+  )
+  cols <- ramp(100L)
+  idx <- scales::rescale(values, to = c(1, 100))
+  cols[round(idx)]
 }
 
 ui <- fluidPage(
-  titlePanel("Wordcloud"),
-  fileInput(
-    "data_file",
-    "Upload a data file (.xlsx or .csv)",
-    accept = c(".xlsx", ".csv")
+  tags$head(
+    tags$link(rel = "stylesheet", href = google_fonts_href),
+    tags$script(src = "d3.v7.min.js"),
+    tags$script(src = "d3.layout.cloud.js"),
+    tags$script(src = "cloud.js")
   ),
-  selectInput("statement_column", "Column containing the statements", choices = NULL),
-  uiOutput("upload_message"),
-  plotOutput("cloud", height = "500px"),
-  downloadButton("download_html", "Download standalone HTML"),
-  hr(),
-  h4("Click a word below to see its statements"),
-  girafeOutput("click_test"),
-  DTOutput("statement_table")
+  titlePanel("Wordcloud"),
+  sidebarLayout(
+    sidebarPanel(
+      fileInput(
+        "data_file",
+        "Upload a data file (.xlsx or .csv)",
+        accept = c(".xlsx", ".csv")
+      ),
+      selectInput(
+        "statement_column",
+        "Column containing the statements",
+        choices = NULL
+      ),
+      numericInput(
+        "max_words",
+        "Maximum number of words",
+        value = 100,
+        min = 10,
+        max = 300,
+        step = 10
+      ),
+      selectInput("font_family", "Font", choices = font_choices),
+      selectInput("palette", "Colour scheme", choices = palette_choices),
+      sliderInput(
+        "padding",
+        "Word spacing (px)",
+        min = 0,
+        max = 10,
+        value = 1,
+        step = 1
+      ),
+      sliderInput(
+        "rotate_prop",
+        "Proportion of rotated words",
+        min = 0,
+        max = 0.5,
+        value = 0,
+        step = 0.05
+      ),
+      # Plain button: export is client-side, so downloadButton (and the
+      # Chromium workaround it carried) no longer applies. See cloud.js
+      # for the equivalent handling of Chromium bug 468227.
+      actionButton(
+        "noop",
+        "Download standalone HTML",
+        onclick = "cloudExport();"
+      ),
+      actionButton("dl_svg", "Download SVG", onclick = "cloudExportSvg();"),
+      actionButton("dl_png", "Download PNG", onclick = "cloudExportPng();")
+    ),
+
+    mainPanel(
+      uiOutput("upload_message"),
+      div(id = "cloud_container", style = "width: 100%; height: 500px;"),
+      div(id = "cloud_note", style = "color: grey; font-size: small;"),
+      hr(),
+      h4("Click a word in the cloud to see its statements"),
+      DT::DTOutput("statement_table")
+    )
+  )
 )
 
 server <- function(input, output, session) {
-  uploaded_data <- reactive({
+  raw_upload <- reactive({
     req(input$data_file)
-    ext <- tools::file_ext(input$data_file$name)
+    ext <- tolower(tools::file_ext(input$data_file$name))
+    path <- input$data_file$datapath
 
-    data <- tryCatch(
-      {
-        if (ext == "xlsx") {
-          readxl::read_excel(input$data_file$datapath)
-        } else if (ext == "csv") {
-          readr::read_csv(input$data_file$datapath, show_col_types = FALSE)
-        } else {
-          NULL
-        }
-      },
-      error = function(e) NULL
+    # webR/Shinylive: datapath may lack the extension; readxl requires it
+    if (tolower(tools::file_ext(path)) != ext) {
+      path_ext <- paste0(path, ".", ext)
+      file.copy(path, path_ext, overwrite = TRUE)
+      path <- path_ext
+    }
+
+    tryCatch(
+      switch(
+        ext,
+        xlsx = readxl::read_excel(path),
+        csv = readr::read_csv(path, show_col_types = FALSE, lazy = FALSE),
+        stop("Unsupported file type: .", ext)
+      ),
+      error = function(e) {
+        structure(conditionMessage(e), class = "upload_error")
+      }
     )
-
-    validate(
-      need(!is.null(data), "Could not read this file. Please upload a valid .xlsx or .csv file.")
-    )
-
-    data %>% mutate(statement_id = row_number())
   })
 
-  observeEvent(uploaded_data(), {
-    updateSelectInput(
-      session,
-      "statement_column",
-      choices = setdiff(names(uploaded_data()), "statement_id")
+  upload_error <- reactive({
+    x <- raw_upload()
+    if (inherits(x, "upload_error")) as.character(x) else NULL
+  })
+
+  uploaded_data <- reactive({
+    shiny::validate(
+      shiny::need(
+        is.null(upload_error()),
+        paste("Could not read this file:", upload_error())
+      )
     )
+    raw_upload() %>% mutate(statement_id = row_number())
   })
 
   chosen_column_is_text <- reactive({
     req(uploaded_data(), input$statement_column)
-    is.character(uploaded_data()[[input$statement_column]])
+    col <- uploaded_data()[[input$statement_column]]
+    is.character(col) || is.factor(col)
+  })
+
+  observeEvent(raw_upload(), {
+    if (is.null(upload_error())) {
+      updateSelectInput(
+        session,
+        "statement_column",
+        choices = setdiff(names(raw_upload()), "statement_id")
+      )
+    } else {
+      updateSelectInput(session, "statement_column", choices = character(0))
+    }
   })
 
   output$upload_message <- renderUI({
+    msg <- upload_error()
+    if (!is.null(msg)) {
+      return(div(
+        style = "color: firebrick;",
+        paste("Could not read this file:", msg)
+      ))
+    }
     req(uploaded_data(), input$statement_column)
     if (!chosen_column_is_text()) {
       div(style = "color: firebrick;", "Selected column does not contain text.")
@@ -83,27 +184,35 @@ server <- function(input, output, session) {
   })
 
   tokens <- reactive({
-    req(uploaded_data(), input$statement_column)
-    req(chosen_column_is_text())
+    req(uploaded_data(), input$statement_column, chosen_column_is_text())
 
     uploaded_data() %>%
-      select(statement_id, text = all_of(input$statement_column)) %>%
-      tidytext::unnest_tokens(word, text) %>%
+      transmute(
+        statement_id,
+        text = as.character(.data[[input$statement_column]])
+      ) %>%
+      filter(!is.na(text), text != "") %>%
+      mutate(word = str_extract_all(str_to_lower(text), "[\\p{L}']+")) %>%
+      select(statement_id, word) %>%
+      unnest(word) %>%
       anti_join(tidytext::stop_words, by = "word")
   })
 
   term_freq <- reactive({
     req(tokens())
-    validate(
-      need(nrow(tokens()) > 0, "No terms found in the selected column.")
+    shiny::validate(
+      shiny::need(nrow(tokens()) > 0, "No terms found in the selected column.")
     )
-    tokens() %>% count(word, name = "freq", sort = TRUE)
+    tokens() %>%
+      count(word, name = "freq", sort = TRUE) %>%
+      slice_head(n = input$max_words)
   })
 
   term_statement_map <- reactive({
     req(tokens())
     tokens() %>%
       distinct(word, statement_id) %>%
+      semi_join(term_freq(), by = "word") %>%
       left_join(
         uploaded_data() %>%
           select(statement_id, statement_text = all_of(input$statement_column)),
@@ -111,94 +220,35 @@ server <- function(input, output, session) {
       )
   })
 
-  # Simple grid layout for the click mechanism (not wordcloud packing).
-  # ggwordcloud has no ggiraph hooks, so making the actual packed layout
-  # clickable remains a separate, unsolved problem.
-  term_grid <- reactive({
+  # Push data and styling to the browser whenever anything relevant changes.
+  observe({
     df <- term_freq()
-    df$x <- (seq_len(nrow(df)) - 1) %% 5
-    df$y <- (seq_len(nrow(df)) - 1) %/% 5
-    df
+    req(nrow(df) > 0)
+
+    mapping <- term_statement_map() %>%
+      group_by(word) %>%
+      summarise(statements = list(statement_text), .groups = "drop")
+
+    session$sendCustomMessage(
+      "render_cloud",
+      list(
+        words = df$word,
+        freq = df$freq,
+        colours = palette_colours(input$palette, sqrt(df$freq)),
+        mapping = setNames(mapping$statements, mapping$word),
+        font = input$font_family,
+        padding = input$padding,
+        rotate_prop = input$rotate_prop
+      )
+    )
   })
 
-  cloud_plot <- reactive({
-    ggplot(term_freq(), aes(label = word, size = freq)) +
-      geom_text_wordcloud() +
-      scale_size_area(max_size = 20) +
-      theme_minimal()
-  })
-
-  output$cloud <- renderPlot(cloud_plot())
-
-  output$click_test <- renderGirafe({
-    p <- ggplot(term_grid(), aes(x = x, y = y, label = word, size = freq)) +
-      geom_text_interactive(
-        aes(data_id = word, tooltip = word),
-        colour = "steelblue"
-      ) +
-      scale_size_area(max_size = 10) +
-      theme_void() +
-      theme(legend.position = "none")
-    girafe(ggobj = p) %>%
-      girafe_options(opts_selection(type = "single"))
-  })
-
-  output$statement_table <- renderDT({
-    req(input$click_test_selected)
+  output$statement_table <- DT::renderDT({
+    req(input$cloud_selected)
     term_statement_map() %>%
-      filter(word == input$click_test_selected) %>%
+      filter(word == input$cloud_selected) %>%
       select(Statement = statement_text)
   })
-
-  output$download_html <- downloadHandler(
-    filename = "wordcloud_export.html",
-    content = function(file) {
-      svg_dev <- svglite::svgstring(width = 8, height = 6, standalone = FALSE)
-      print(cloud_plot())
-      svg_string <- svg_dev()
-      dev.off()
-
-      mapping_df <- term_statement_map() %>%
-        group_by(word) %>%
-        summarise(statements = list(statement_text), .groups = "drop")
-      mapping_list <- setNames(mapping_df$statements, mapping_df$word)
-      mapping_json <- jsonlite::toJSON(mapping_list, auto_unbox = FALSE)
-
-      html_head <- "<!doctype html><html><head>"
-      html_head2 <- "<meta charset='utf-8'>"
-      html_head3 <- "<title>Wordcloud export</title></head><body>"
-      html_h1 <- "<h1>Wordcloud (standalone export, no R)</h1>"
-      html_div_open <- "<div id='statements'>"
-      html_placeholder <- "<p>Click a word above.</p></div>"
-      script_open <- "<script>"
-      script_mapping <- paste0("const mapping = ", mapping_json, ";")
-      script_listener_1 <- "document.querySelector('svg').addEventListener('click', function(e) {"
-      script_listener_2 <- "if (e.target.tagName !== 'text') return;"
-      script_listener_3 <- "const word = e.target.textContent;"
-      script_listener_4 <- "const rows = mapping[word];"
-      script_listener_5 <- "const div = document.getElementById('statements');"
-      script_listener_6 <- "if (!rows) { div.innerHTML = '<p>No statements found.</p>'; return; }"
-      script_listener_7 <- "div.innerHTML = '<h2>' + word + '</h2><ul>' + rows.map(function(s){return '<li>' + s + '</li>';}).join('') + '</ul>';"
-      script_listener_8 <- "});"
-      script_close <- "</script>"
-      html_close <- "</body></html>"
-
-      html <- paste0(
-        html_head, html_head2, html_head3, html_h1,
-        svg_string,
-        html_div_open, html_placeholder,
-        script_open,
-        script_mapping,
-        script_listener_1, script_listener_2, script_listener_3,
-        script_listener_4, script_listener_5, script_listener_6,
-        script_listener_7, script_listener_8,
-        script_close,
-        html_close
-      )
-
-      writeLines(html, file)
-    }
-  )
 }
 
 shinyApp(ui, server)
