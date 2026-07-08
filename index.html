@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Wordcloud</title>
+    <script type="module" src="/src/main.js"></script>
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="page-header">
+        <h1>Wordcloud</h1>
+      </header>
+
+      <main class="app-grid">
+        <aside class="controls-card">
+          <label class="field-group" for="data_file">
+            <span>Upload a data file (.xlsx or .csv)</span>
+            <input id="data_file" type="file" accept=".xlsx,.csv" />
+          </label>
+
+          <label class="field-group" for="statement_column">
+            <span>Column containing the statements</span>
+            <select id="statement_column" disabled>
+              <option value="">Select a column</option>
+            </select>
+          </label>
+
+          <label class="field-group" for="max_words">
+            <span>Maximum number of words</span>
+            <input id="max_words" type="number" min="10" max="300" step="10" value="100" />
+          </label>
+
+          <label class="field-group" for="font_family">
+            <span>Font</span>
+            <select id="font_family"></select>
+          </label>
+
+          <label class="field-group" for="palette">
+            <span>Colour scheme</span>
+            <select id="palette"></select>
+          </label>
+
+          <label class="field-group" for="padding">
+            <span>Word spacing (px)</span>
+            <input id="padding" type="range" min="0" max="10" step="1" value="1" />
+            <output id="padding_value" for="padding">1</output>
+          </label>
+
+          <label class="field-group" for="rotate_prop">
+            <span>Proportion of rotated words</span>
+            <input id="rotate_prop" type="range" min="0" max="0.5" step="0.05" value="0" />
+            <output id="rotate_prop_value" for="rotate_prop">0</output>
+          </label>
+
+          <div class="button-stack">
+            <button id="download_html" type="button">Download standalone HTML</button>
+            <button id="download_svg" type="button">Download SVG</button>
+            <button id="download_png" type="button">Download PNG</button>
+          </div>
+        </aside>
+
+        <section class="content-card">
+          <div id="upload_message" class="status-message" aria-live="polite"></div>
+          <div id="cloud_container" class="cloud-surface"></div>
+          <div id="cloud_note" class="cloud-note" aria-live="polite"></div>
+          <hr />
+          <div class="statements-header">
+            <h2>Click a word in the cloud to see its statements</h2>
+            <button id="sort_statements" type="button" disabled>Sort A–Z</button>
+          </div>
+          <div id="statements_empty" class="statements-empty">Click a word above.</div>
+          <table class="statements-table" aria-live="polite">
+            <thead>
+              <tr>
+                <th scope="col">Statement</th>
+              </tr>
+            </thead>
+            <tbody id="statement_rows"></tbody>
+          </table>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>
