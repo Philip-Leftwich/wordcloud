@@ -33,6 +33,7 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
   let lastSize = [800, 500];
   let selectedWord = null;
   let currentRenderId = 0;
+  let clipPathId = 0;
 
   function createShapeMask(shape, size) {
     const [width, height] = size;
@@ -124,7 +125,8 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
   }
 
   function appendClipPath(svg, shape, width, height) {
-    const clipId = `wordcloud-clip-${Math.random().toString(36).slice(2, 10)}`;
+    clipPathId += 1;
+    const clipId = `wordcloud-clip-${clipPathId}`;
     const layout = getLayoutConfig(shape, width, height);
     const [layoutWidth, layoutHeight] = layout.size;
     const offsetX = (width - layoutWidth) / 2;
