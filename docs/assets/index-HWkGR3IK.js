@@ -213,7 +213,7 @@ let statementSortAscending = exportState.statementSortAscending;
 function updateStoredState() {
   exportState.selectedWord = selectedWord;
   exportState.statementSortAscending = statementSortAscending;
-  exportStateNode.textContent = JSON.stringify(exportState).replace(/</g, "\\\\u003c");
+  exportStateNode.textContent = JSON.stringify(exportState).replace(/</g, "\\u003c");
 }
 
 function textNodes() {
@@ -345,7 +345,9 @@ document.getElementById("download_png").addEventListener("click", () => {
 
 document.getElementById("download_html").addEventListener("click", () => {
   updateStoredState();
-  const html = "<!doctype html>\\n" + document.documentElement.outerHTML;
+  const clone = document.documentElement.cloneNode(true);
+  clone.querySelector("#wordcloud-export-state").textContent = exportStateNode.textContent;
+  const html = "<!doctype html>\\n" + clone.outerHTML;
   triggerDownload(new Blob([html], { type: "text/html" }), "wordcloud_export.html");
 });
 
