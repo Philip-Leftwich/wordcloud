@@ -23,12 +23,13 @@ function triggerDownload(blob, filename) {
 }
 
 function escapeHtml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
+  return String(value).replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  })[character]);
 }
 
 export function createCloudRenderer({ container, note, onSelectWord }) {
@@ -405,7 +406,7 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
       "<h1>Wordcloud</h1>" +
       "<p>Click a word in the cloud to see its statements below.</p>" +
       `<div class='cloud-surface'>${svgString}</div>` +
-      `<div class='cloud-note'>${escapeHtml(note.textContent)}</div>` +
+      `<div class='cloud-note'>${escapeHtml(note?.textContent ?? "")}</div>` +
       "<hr />" +
       "<div class='statements-header'>" +
       "<h2>Click a word in the cloud to see its statements</h2>" +
