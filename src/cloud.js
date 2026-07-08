@@ -1,6 +1,7 @@
 import * as d3 from "d3";
 import cloud from "d3-cloud";
 
+const LAYOUT_SCALE_FACTOR = 0.95;
 const PRIMARY_LAYOUT_SEED = 42;
 const SECOND_PASS_LAYOUT_SEED = 4242;
 
@@ -65,9 +66,9 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
   }
 
   function getLayoutConfig(shape, width, height) {
-    const safeWidth = Math.max(1, Math.floor(width * 0.95));
-    const safeHeight = Math.max(1, Math.floor(height * 0.95));
-    const squareSize = Math.max(1, Math.floor(Math.min(width, height) * 0.95));
+    const safeWidth = Math.max(1, Math.floor(width * LAYOUT_SCALE_FACTOR));
+    const safeHeight = Math.max(1, Math.floor(height * LAYOUT_SCALE_FACTOR));
+    const squareSize = Math.max(1, Math.floor(Math.min(width, height) * LAYOUT_SCALE_FACTOR));
     let config;
 
     switch (shape) {
@@ -316,7 +317,7 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
         renderSvg(container, filtered, width, height, message.font, message.shape, true);
         const dropped = entries.length - filtered.length;
         note.textContent = dropped > 0
-          ? `${dropped} word(s) could not be placed within the selected shape and are not shown.`
+          ? `${dropped} word(s) could not be placed in the final masked layout and are not shown.`
           : "";
       });
     });
