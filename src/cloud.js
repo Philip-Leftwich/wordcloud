@@ -22,6 +22,15 @@ function triggerDownload(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
 export function createCloudRenderer({ container, note, onSelectWord }) {
   let lastLayout = null;
   let lastMapping = {};
@@ -115,7 +124,9 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
     lastSize = [width, height];
     lastMapping = message.mapping;
     lastFont = message.font;
-    selectedWord = message.selectedWord === undefined ? selectedWord : message.selectedWord;
+    if (message.selectedWord !== undefined) {
+      selectedWord = message.selectedWord;
+    }
 
     if (!message.words.length) {
       lastLayout = null;
@@ -394,7 +405,7 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
       "<h1>Wordcloud</h1>" +
       "<p>Click a word in the cloud to see its statements below.</p>" +
       `<div class='cloud-surface'>${svgString}</div>` +
-      `<div class='cloud-note'>${note.textContent}</div>` +
+      `<div class='cloud-note'>${escapeHtml(note.textContent)}</div>` +
       "<hr />" +
       "<div class='statements-header'>" +
       "<h2>Click a word in the cloud to see its statements</h2>" +
