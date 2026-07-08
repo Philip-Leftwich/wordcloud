@@ -1,6 +1,9 @@
 import * as d3 from "d3";
 import cloud from "d3-cloud";
 
+const PRIMARY_LAYOUT_SEED = 42;
+const SECOND_PASS_LAYOUT_SEED = 4242;
+
 function mulberry32(seed) {
   return function random() {
     seed |= 0;
@@ -295,8 +298,8 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
       }
 
       Promise.all([
-        runLayoutAttempt(entries, layout, message, 42),
-        runLayoutAttempt(entries, layout, message, 4242),
+        runLayoutAttempt(entries, layout, message, PRIMARY_LAYOUT_SEED),
+        runLayoutAttempt(entries, layout, message, SECOND_PASS_LAYOUT_SEED),
       ]).then((attempts) => {
         if (renderId !== currentRenderId) {
           return;
