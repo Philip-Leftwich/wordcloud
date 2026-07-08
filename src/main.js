@@ -352,7 +352,9 @@ function renderCloud() {
 function syncClonedSelect(select, value, disabled) {
   select.value = value;
   Array.from(select.options).forEach((option) => {
-    option.selected = option.value === value;
+    const isSelected = option.value === value;
+    option.selected = isSelected;
+    option.toggleAttribute("selected", isSelected);
   });
   select.disabled = disabled;
 }
@@ -549,8 +551,10 @@ function buildStandaloneExportHtml() {
   syncClonedSelect(cloneElements.shapeSelect, state.shape, false);
   syncClonedInput(cloneElements.paddingInput, state.padding, false);
   syncClonedInput(cloneElements.rotateInput, state.rotateProp, false);
-  cloneElements.paddingValue.textContent = elements.paddingValue.textContent;
-  cloneElements.rotateValue.textContent = elements.rotateValue.textContent;
+  cloneElements.paddingValue.value = elements.paddingValue.value;
+  cloneElements.paddingValue.textContent = elements.paddingValue.value || elements.paddingValue.textContent;
+  cloneElements.rotateValue.value = elements.rotateValue.value;
+  cloneElements.rotateValue.textContent = elements.rotateValue.value || elements.rotateValue.textContent;
   cloneElements.uploadMessage.className = elements.uploadMessage.className;
   cloneElements.uploadMessage.innerHTML = elements.uploadMessage.innerHTML;
   cloneElements.cloudContainer.innerHTML = svgString;
