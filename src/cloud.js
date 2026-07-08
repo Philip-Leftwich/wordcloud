@@ -254,11 +254,14 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
 
     const width = container.clientWidth || 800;
     const height = container.clientHeight || 500;
+    const nextSelectedWord = message.selectedWord;
     lastSize = [width, height];
     lastMapping = message.mapping;
     lastFont = message.font;
     lastShape = message.shape;
-    selectedWord = message.selectedWord === undefined ? selectedWord : message.selectedWord;
+    if (nextSelectedWord !== undefined) {
+      selectedWord = nextSelectedWord;
+    }
 
     if (!message.words.length) {
       lastLayout = null;
