@@ -57,6 +57,12 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
       .text((datum) => datum.text);
 
     if (interactive) {
+      const setSelectedWord = (nextWord) => {
+        selectedWord = nextWord;
+        applyHighlight();
+        onSelectWord(nextWord);
+      };
+
       const applyHighlight = () => {
         textSelection
           .style("opacity", (datum) => (selectedWord === null || datum.text === selectedWord ? 1 : 0.35))
@@ -65,16 +71,22 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
 
       applyHighlight();
 
+      svg.on("click", (event) => {
+        if (event.target.closest("text")) {
+          return;
+        }
+        setSelectedWord(null);
+      });
+
       textSelection
         .style("cursor", "pointer")
         .on("mouseover", function handleMouseOver() {
           d3.select(this).style("opacity", 0.6);
         })
         .on("mouseout", applyHighlight)
-        .on("click", function handleClick(_event, datum) {
-          selectedWord = datum.text;
-          applyHighlight();
-          onSelectWord(datum.text);
+        .on("click", function handleClick(event, datum) {
+          event.stopPropagation();
+          setSelectedWord(datum.text);
         });
     }
 
@@ -103,7 +115,7 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
     lastSize = [width, height];
     lastMapping = message.mapping;
     lastFont = message.font;
-    selectedWord = message.selectedWord ?? selectedWord;
+    selectedWord = message.selectedWord === undefined ? selectedWord : message.selectedWord;
 
     if (!message.words.length) {
       lastLayout = null;
@@ -215,38 +227,159 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
       return;
     }
 
-    const holder = document.createElement("div");
-    renderSvg(holder, lastLayout, lastSize[0], lastSize[1], lastFont, false);
-    const svgString = new XMLSerializer().serializeToString(holder.firstChild);
+    const svgString = currentSvgString();
+    const exportStyles = `
+      :root {
+        color-scheme: light;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        line-height: 1.5;
+        color: #1f2933;
+        background: #f5f7fa;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: #f5f7fa; }
+      button { font: inherit; }
+      .page-shell { max-width: 1200px; margin: 0 auto; padding: 1.5rem; }
+      .content-card {
+        background: #ffffff;
+        border: 1px solid #d9e2ec;
+        border-radius: 12px;
+        padding: 1rem;
+        box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
+      }
+      .cloud-surface {
+        width: 100%;
+        height: 500px;
+        border-radius: 10px;
+        background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+        overflow: hidden;
+      }
+      .cloud-surface svg { width: 100%; height: 100%; }
+      .cloud-note {
+        min-height: 1.25rem;
+        margin-top: 0.5rem;
+        color: #7b8794;
+        font-size: 0.9rem;
+      }
+      .statements-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+      }
+      .statements-header h2 {
+        margin: 0;
+        font-size: 1.1rem;
+      }
+      .statements-empty {
+        margin-top: 1rem;
+        color: #52606d;
+      }
+      .statements-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 1rem;
+        display: none;
+      }
+      .statements-table th,
+      .statements-table td {
+        text-align: left;
+        vertical-align: top;
+        padding: 0.75rem;
+        border-bottom: 1px solid #e4e7eb;
+      }
+      .statements-table tbody tr:nth-child(odd) { background: #f8fafc; }
+      button {
+        width: auto;
+        padding: 0.6rem 0.75rem;
+        border: 1px solid #bcccdc;
+        border-radius: 8px;
+        background: #f8fafc;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.65;
+      }
+      button:hover:enabled { background: #eef2f7; }
+      @media (max-width: 900px) {
+        .page-shell { padding: 1rem; }
+        .statements-header { flex-direction: column; align-items: flex-start; }
+      }
+    `;
 
     const clickScript = [
       `const mapping = ${JSON.stringify(lastMapping)};`,
-      "const svg = document.querySelector('svg');",
-      "svg.style.cursor = 'pointer';",
-      "svg.addEventListener('click', function (event) {",
-      "  const text = event.target.closest('text');",
-      "  if (!text) return;",
-      "  const word = text.textContent.trim();",
-      "  const rows = mapping[word];",
-      "  const root = document.getElementById('statements');",
-      "  root.replaceChildren();",
-      "  const heading = document.createElement('h2');",
-      "  heading.textContent = word;",
-      "  root.appendChild(heading);",
-      "  if (!rows || rows.length === 0) {",
-      "    const empty = document.createElement('p');",
-      "    empty.textContent = 'No statements found.';",
-      "    root.appendChild(empty);",
+      `let selectedWord = ${JSON.stringify(selectedWord)};`,
+      "let statementSortAscending = true;",
+      "const svg = document.querySelector('.cloud-surface svg');",
+      "const words = Array.from(svg.querySelectorAll('text'));",
+      "const statementRows = document.getElementById('statement_rows');",
+      "const statementsEmpty = document.getElementById('statements_empty');",
+      "const statementsTable = document.querySelector('.statements-table');",
+      "const sortButton = document.getElementById('sort_statements');",
+      "function applyHighlight() {",
+      "  words.forEach(function (text) {",
+      "    const isSelected = text.textContent.trim() === selectedWord;",
+      "    text.style.opacity = selectedWord === null || isSelected ? '1' : '0.35';",
+      "    text.style.fontWeight = isSelected ? 'bold' : 'normal';",
+      "    text.style.cursor = 'pointer';",
+      "  });",
+      "}",
+      "function renderStatements() {",
+      "  const statements = selectedWord ? [...(mapping[selectedWord] || [])] : [];",
+      "  sortButton.disabled = statements.length === 0;",
+      "  sortButton.textContent = statementSortAscending ? 'Sort Z–A' : 'Sort A–Z';",
+      "  if (!statements.length) {",
+      "    statementsEmpty.textContent = selectedWord ? 'No statements found.' : 'Click a word above.';",
+      "    statementsEmpty.style.display = 'block';",
+      "    statementsTable.style.display = 'none';",
+      "    statementRows.replaceChildren();",
       "    return;",
       "  }",
-      "  const list = document.createElement('ul');",
-      "  rows.forEach(function (statement) {",
-      "    const item = document.createElement('li');",
-      "    item.textContent = statement;",
-      "    list.appendChild(item);",
+      "  statements.sort(function (left, right) {",
+      "    const comparison = left.localeCompare(right);",
+      "    return statementSortAscending ? comparison : -comparison;",
       "  });",
-      "  root.appendChild(list);",
+      "  const fragment = document.createDocumentFragment();",
+      "  statements.forEach(function (statement) {",
+      "    const row = document.createElement('tr');",
+      "    const cell = document.createElement('td');",
+      "    cell.textContent = statement;",
+      "    row.appendChild(cell);",
+      "    fragment.appendChild(row);",
+      "  });",
+      "  statementRows.replaceChildren(fragment);",
+      "  statementsEmpty.style.display = 'none';",
+      "  statementsTable.style.display = 'table';",
+      "}",
+      "words.forEach(function (text) {",
+      "  text.addEventListener('mouseover', function () {",
+      "    text.style.opacity = '0.6';",
+      "  });",
+      "  text.addEventListener('mouseout', applyHighlight);",
+      "  text.addEventListener('click', function (event) {",
+      "    event.stopPropagation();",
+      "    selectedWord = text.textContent.trim();",
+      "    applyHighlight();",
+      "    renderStatements();",
+      "  });",
       "});",
+      "svg.addEventListener('click', function (event) {",
+      "  if (event.target.closest('text')) {",
+      "    return;",
+      "  }",
+      "  selectedWord = null;",
+      "  applyHighlight();",
+      "  renderStatements();",
+      "});",
+      "sortButton.addEventListener('click', function () {",
+      "  statementSortAscending = !statementSortAscending;",
+      "  renderStatements();",
+      "});",
+      "applyHighlight();",
+      "renderStatements();",
     ].join("\n");
 
     const fontsHref =
@@ -254,12 +387,22 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
 
     const html =
       "<!doctype html><html><head><meta charset='utf-8'>" +
+      "<meta name='viewport' content='width=device-width, initial-scale=1.0'>" +
       `<link rel='stylesheet' href='${fontsHref}'>` +
-      "<title>Wordcloud export</title></head><body>" +
-      "<h1>Wordcloud (standalone export, no R)</h1>" +
+      `<title>Wordcloud export</title><style>${exportStyles}</style></head><body>` +
+      "<div class='page-shell'><section class='content-card'>" +
+      "<h1>Wordcloud</h1>" +
       "<p>Click a word in the cloud to see its statements below.</p>" +
-      `<div style='max-width: 900px;'>${svgString}</div>` +
-      "<div id='statements'><p>Click a word above.</p></div>" +
+      `<div class='cloud-surface'>${svgString}</div>` +
+      `<div class='cloud-note'>${note.textContent}</div>` +
+      "<hr />" +
+      "<div class='statements-header'>" +
+      "<h2>Click a word in the cloud to see its statements</h2>" +
+      "<button id='sort_statements' type='button' disabled>Sort A–Z</button>" +
+      "</div>" +
+      "<div id='statements_empty' class='statements-empty'>Click a word above.</div>" +
+      "<table class='statements-table' aria-live='polite'><thead><tr><th scope='col'>Statement</th></tr></thead><tbody id='statement_rows'></tbody></table>" +
+      "</section></div>" +
       `<script>${clickScript}<\/script>` +
       "</body></html>";
 
