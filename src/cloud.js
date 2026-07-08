@@ -120,7 +120,7 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
     lastSize = [width, height];
     lastMapping = message.mapping;
     lastFont = message.font;
-    selectedWord = message.selectedWord ?? null;
+    selectedWord = message.selectedWord === undefined ? selectedWord : message.selectedWord;
 
     if (!message.words.length) {
       lastLayout = null;

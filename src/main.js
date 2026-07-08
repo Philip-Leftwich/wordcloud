@@ -370,9 +370,11 @@ function escapeJsonForHtml(value) {
 }
 
 function buildStandaloneExportScript() {
-  const escapeJsonForHtmlSource = escapeJsonForHtml.toString();
   return `
-const escapeJsonForHtml = ${escapeJsonForHtmlSource};
+function escapeJsonForHtml(value) {
+  return JSON.stringify(value).replace(/</g, "\\u003c");
+}
+
 const exportStateNode = document.getElementById("wordcloud-export-state");
 const exportState = JSON.parse(exportStateNode.textContent);
 let selectedWord = exportState.selectedWord;
@@ -587,7 +589,7 @@ function buildStandaloneExportHtml() {
     "<body>",
     pageShell.outerHTML,
     `  <script id="wordcloud-export-state" type="application/json">${escapeJsonForHtml(exportState)}</script>`,
-    `  <script>${buildStandaloneExportScript()}<\/script>`,
+    `  <script>${buildStandaloneExportScript()}</script>`,
     "</body>",
     "</html>",
   ].join("\n");
