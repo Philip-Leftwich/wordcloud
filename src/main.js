@@ -370,7 +370,9 @@ function escapeJsonForHtml(value) {
 }
 
 function buildStandaloneExportScript() {
+  const escapeJsonForHtmlSource = escapeJsonForHtml.toString();
   return `
+const escapeJsonForHtml = ${escapeJsonForHtmlSource};
 const exportStateNode = document.getElementById("wordcloud-export-state");
 const exportState = JSON.parse(exportStateNode.textContent);
 let selectedWord = exportState.selectedWord;
@@ -379,7 +381,7 @@ let statementSortAscending = exportState.statementSortAscending;
 function updateStoredState() {
   exportState.selectedWord = selectedWord;
   exportState.statementSortAscending = statementSortAscending;
-  exportStateNode.textContent = JSON.stringify(exportState).replace(/</g, "\\u003c");
+  exportStateNode.textContent = escapeJsonForHtml(exportState);
 }
 
 function textNodes() {
@@ -513,7 +515,8 @@ document.getElementById("download_html").addEventListener("click", () => {
   updateStoredState();
   const clone = document.documentElement.cloneNode(true);
   clone.querySelector("#wordcloud-export-state").textContent = exportStateNode.textContent;
-  const html = "<!doctype html>\\n" + clone.outerHTML;
+  const html = \`<!doctype html>
+\${clone.outerHTML}\`;
   triggerDownload(new Blob([html], { type: "text/html" }), "wordcloud_export.html");
 });
 
