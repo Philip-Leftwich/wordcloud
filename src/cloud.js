@@ -313,8 +313,9 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
         }
         renderSvg(container, filtered, width, height, message.font, message.shape, true);
         const dropped = entries.length - filtered.length;
-        note.textContent =
-          dropped > 0 ? `${dropped} word(s) could not be placed within the selected shape and are not shown.` : "";
+        note.textContent = dropped > 0
+          ? `${dropped} word(s) could not be placed within the selected shape and are not shown.`
+          : "";
       });
     });
   }
