@@ -26,27 +26,136 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
   let lastLayout = null;
   let lastMapping = {};
   let lastFont = "sans-serif";
+  let lastShape = "oval";
   let lastSize = [800, 500];
   let selectedWord = null;
   let currentRenderId = 0;
+
+  function createShapeMask(shape, size) {
+    const [width, height] = size;
+    const centreX = width / 2;
+    const centreY = height / 2;
+    const radiusX = width / 2;
+    const radiusY = height / 2;
+    const squareHalf = Math.min(width, height) / 2;
+
+    switch (shape) {
+      case "circle": {
+        const radius = Math.min(radiusX, radiusY);
+        return (x, y) => {
+          const dx = x - centreX;
+          const dy = y - centreY;
+          return dx * dx + dy * dy <= radius * radius;
+        };
+      }
+      case "square":
+        return (x, y) => Math.abs(x - centreX) <= squareHalf && Math.abs(y - centreY) <= squareHalf;
+      case "oval":
+      default:
+        return (x, y) => {
+          const dx = (x - centreX) / radiusX;
+          const dy = (y - centreY) / radiusY;
+          return dx * dx + dy * dy <= 1;
+        };
+    }
+  }
 
   function getLayoutConfig(shape, width, height) {
     const safeWidth = Math.max(1, Math.floor(width * 0.95));
     const safeHeight = Math.max(1, Math.floor(height * 0.95));
     const squareSize = Math.max(1, Math.floor(Math.min(width, height) * 0.95));
+    let config;
 
     switch (shape) {
       case "circle":
-        return { spiral: "archimedean", size: [squareSize, squareSize] };
+        config = { spiral: "archimedean", size: [squareSize, squareSize] };
+        break;
       case "square":
-        return { spiral: "rectangular", size: [squareSize, squareSize] };
+        config = { spiral: "rectangular", size: [squareSize, squareSize] };
+        break;
       case "oval":
       default:
-        return { spiral: "archimedean", size: [safeWidth, safeHeight] };
+        config = { spiral: "archimedean", size: [safeWidth, safeHeight] };
+        break;
     }
+
+    return { ...config, mask: createShapeMask(shape, config.size) };
   }
 
-  function renderSvg(target, words, width, height, font, interactive) {
+  function wordPoints(word) {
+    const left = word.x + word.x0;
+    const right = word.x + word.x1;
+    const top = word.y + word.y0;
+    const bottom = word.y + word.y1;
+
+    return [
+      [word.x, word.y],
+      [left, top],
+      [left, bottom],
+      [right, top],
+      [right, bottom],
+    ];
+  }
+
+  function isWordInsideMask(word, mask) {
+    return wordPoints(word).every(([x, y]) => mask(x, y));
+  }
+
+  function pickBestLayout(attempts, mask) {
+    return attempts.reduce(
+      (best, placed) => {
+        const filtered = placed.filter((word) => isWordInsideMask(word, mask));
+        if (
+          filtered.length > best.filtered.length ||
+          (filtered.length === best.filtered.length && placed.length > best.placed.length)
+        ) {
+          return { placed, filtered };
+        }
+        return best;
+      },
+      { placed: [], filtered: [] }
+    );
+  }
+
+  function appendClipPath(svg, shape, width, height) {
+    const clipId = `wordcloud-clip-${Math.random().toString(36).slice(2, 10)}`;
+    const layout = getLayoutConfig(shape, width, height);
+    const [layoutWidth, layoutHeight] = layout.size;
+    const offsetX = (width - layoutWidth) / 2;
+    const offsetY = (height - layoutHeight) / 2;
+    const clipPath = svg.append("defs").append("clipPath").attr("id", clipId).attr("clipPathUnits", "userSpaceOnUse");
+
+    switch (shape) {
+      case "circle":
+        clipPath
+          .append("circle")
+          .attr("cx", width / 2)
+          .attr("cy", height / 2)
+          .attr("r", Math.min(layoutWidth, layoutHeight) / 2);
+        break;
+      case "square":
+        clipPath
+          .append("rect")
+          .attr("x", offsetX)
+          .attr("y", offsetY)
+          .attr("width", layoutWidth)
+          .attr("height", layoutHeight);
+        break;
+      case "oval":
+      default:
+        clipPath
+          .append("ellipse")
+          .attr("cx", width / 2)
+          .attr("cy", height / 2)
+          .attr("rx", layoutWidth / 2)
+          .attr("ry", layoutHeight / 2);
+        break;
+    }
+
+    return clipId;
+  }
+
+  function renderSvg(target, words, width, height, font, shape, interactive) {
     target.replaceChildren();
 
     const svg = d3
@@ -57,7 +166,10 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
       .attr("width", "100%")
       .attr("height", "100%");
 
+    const clipId = appendClipPath(svg, shape, width, height);
     const group = svg
+      .append("g")
+      .attr("clip-path", `url(#${clipId})`)
       .append("g")
       .attr("transform", `translate(${width / 2},${height / 2})`);
 
@@ -104,11 +216,27 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
     }
 
     const holder = document.createElement("div");
-    renderSvg(holder, lastLayout, lastSize[0], lastSize[1], lastFont, false);
+    renderSvg(holder, lastLayout, lastSize[0], lastSize[1], lastFont, lastShape, false);
     const svg = holder.firstChild;
     svg.setAttribute("width", String(lastSize[0]));
     svg.setAttribute("height", String(lastSize[1]));
     return new XMLSerializer().serializeToString(svg);
+  }
+
+  function runLayoutAttempt(entries, layout, message, seed) {
+    return new Promise((resolve) => {
+      cloud()
+        .size(layout.size)
+        .words(entries.map((entry) => ({ ...entry })))
+        .padding(message.padding)
+        .spiral(layout.spiral)
+        .font(message.font)
+        .fontSize((datum) => datum.size)
+        .rotate((datum) => datum.rotate)
+        .random(mulberry32(seed))
+        .on("end", resolve)
+        .start();
+    });
   }
 
   function render(message) {
@@ -120,6 +248,7 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
     lastSize = [width, height];
     lastMapping = message.mapping;
     lastFont = message.font;
+    lastShape = message.shape;
     selectedWord = message.selectedWord === undefined ? selectedWord : message.selectedWord;
 
     if (!message.words.length) {
@@ -162,30 +291,25 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
         return;
       }
 
-      cloud()
-        .size(layout.size)
-        .words(entries)
-        .padding(message.padding)
-        .spiral(layout.spiral)
-        .font(message.font)
-        .fontSize((datum) => datum.size)
-        .rotate((datum) => datum.rotate)
-        .random(mulberry32(42))
-        .on("end", (placed) => {
-          if (renderId !== currentRenderId) {
-            return;
-          }
+      Promise.all([
+        runLayoutAttempt(entries, layout, message, 42),
+        runLayoutAttempt(entries, layout, message, 4242),
+      ]).then((attempts) => {
+        if (renderId !== currentRenderId) {
+          return;
+        }
 
-          lastLayout = placed;
-          if (selectedWord !== null && !placed.some((datum) => datum.text === selectedWord)) {
-            selectedWord = null;
-            onSelectWord(null);
-          }
-          renderSvg(container, placed, width, height, message.font, true);
-          const dropped = entries.length - placed.length;
-          note.textContent = dropped > 0 ? `${dropped} word(s) could not be placed and are not shown.` : "";
-        })
-        .start();
+        const { filtered } = pickBestLayout(attempts, layout.mask);
+        lastLayout = filtered;
+        if (selectedWord !== null && !filtered.some((datum) => datum.text === selectedWord)) {
+          selectedWord = null;
+          onSelectWord(null);
+        }
+        renderSvg(container, filtered, width, height, message.font, message.shape, true);
+        const dropped = entries.length - filtered.length;
+        note.textContent =
+          dropped > 0 ? `${dropped} word(s) could not be placed within the selected shape and are not shown.` : "";
+      });
     });
   }
 
