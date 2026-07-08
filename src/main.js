@@ -2,6 +2,7 @@ import * as d3 from "d3";
 import readXlsxFile from "read-excel-file";
 import stopwords from "stopwords-iso/stopwords-iso.json";
 import "./styles.css";
+import appStylesText from "./styles.css?raw";
 import { createCloudRenderer } from "./cloud.js";
 
 const FONT_CHOICES = [
@@ -14,6 +15,11 @@ const FONT_CHOICES = [
 ];
 
 const PALETTE_CHOICES = ["Viridis", "Magma", "Blues", "Warm", "Steel"];
+const SHAPE_CHOICES = [
+  { label: "Oval", value: "oval" },
+  { label: "Circle", value: "circle" },
+  { label: "Square", value: "square" },
+];
 const STOP_WORDS = new Set(stopwords.en.map((word) => String(word).toLowerCase()));
 
 const state = {
@@ -23,6 +29,7 @@ const state = {
   maxWords: 100,
   fontFamily: "sans-serif",
   palette: "Viridis",
+  shape: "oval",
   padding: 1,
   rotateProp: 0,
   uploadError: "",
@@ -38,6 +45,7 @@ const elements = {
   maxWordsInput: document.getElementById("max_words"),
   fontSelect: document.getElementById("font_family"),
   paletteSelect: document.getElementById("palette"),
+  shapeSelect: document.getElementById("shape"),
   paddingInput: document.getElementById("padding"),
   paddingValue: document.getElementById("padding_value"),
   rotateInput: document.getElementById("rotate_prop"),
@@ -74,9 +82,13 @@ function populateStaticOptions() {
   elements.paletteSelect.innerHTML = PALETTE_CHOICES.map(
     (choice) => `<option value="${choice}">${choice}</option>`
   ).join("");
+  elements.shapeSelect.innerHTML = SHAPE_CHOICES.map(
+    (choice) => `<option value="${choice.value}">${choice.label}</option>`
+  ).join("");
 
   elements.fontSelect.value = state.fontFamily;
   elements.paletteSelect.value = state.palette;
+  elements.shapeSelect.value = state.shape;
   elements.paddingValue.value = String(state.padding);
   elements.rotateValue.value = String(state.rotateProp);
 }
@@ -311,6 +323,7 @@ function renderCloud() {
       colours: [],
       mapping: {},
       font: state.fontFamily,
+      shape: state.shape,
       padding: state.padding,
       rotateProp: state.rotateProp,
       selectedWord: null,
@@ -329,10 +342,263 @@ function renderCloud() {
     colours,
     mapping,
     font: state.fontFamily,
+    shape: state.shape,
     padding: state.padding,
     rotateProp: state.rotateProp,
     selectedWord: state.selectedWord,
   });
+}
+
+function syncClonedSelect(select, value, disabled) {
+  select.value = value;
+  Array.from(select.options).forEach((option) => {
+    option.selected = option.value === value;
+  });
+  select.disabled = disabled;
+}
+
+function syncClonedInput(input, value, disabled) {
+  input.value = String(value);
+  input.setAttribute("value", String(value));
+  input.disabled = disabled;
+}
+
+function escapeJsonForHtml(value) {
+  return JSON.stringify(value).replace(/</g, "\\u003c");
+}
+
+function buildStandaloneExportScript() {
+  return `
+const exportStateNode = document.getElementById("wordcloud-export-state");
+const exportState = JSON.parse(exportStateNode.textContent);
+let selectedWord = exportState.selectedWord;
+let statementSortAscending = exportState.statementSortAscending;
+
+function updateStoredState() {
+  exportState.selectedWord = selectedWord;
+  exportState.statementSortAscending = statementSortAscending;
+  exportStateNode.textContent = JSON.stringify(exportState).replace(/</g, "\\\\u003c");
+}
+
+function textNodes() {
+  return Array.from(document.querySelectorAll("#cloud_container text[data-word]"));
+}
+
+function applyHighlight() {
+  textNodes().forEach((node) => {
+    const isSelected = node.dataset.word === selectedWord;
+    node.style.opacity = selectedWord === null || isSelected ? "1" : "0.35";
+    node.style.fontWeight = isSelected ? "bold" : "normal";
+    node.style.cursor = "pointer";
+  });
+}
+
+function renderStatements() {
+  const statements = selectedWord ? [...(exportState.mapping[selectedWord] ?? [])] : [];
+  const sortButton = document.getElementById("sort_statements");
+  const empty = document.getElementById("statements_empty");
+  const table = document.querySelector(".statements-table");
+  const rows = document.getElementById("statement_rows");
+
+  sortButton.disabled = statements.length === 0;
+  sortButton.textContent = statementSortAscending ? "Sort Z–A" : "Sort A–Z";
+
+  if (!statements.length) {
+    empty.textContent = selectedWord ? "No statements found." : "Click a word above.";
+    empty.style.display = "block";
+    table.style.display = "none";
+    rows.replaceChildren();
+    updateStoredState();
+    return;
+  }
+
+  statements.sort((left, right) => {
+    const comparison = left.localeCompare(right);
+    return statementSortAscending ? comparison : -comparison;
+  });
+
+  const fragment = document.createDocumentFragment();
+  statements.forEach((statement) => {
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.textContent = statement;
+    row.append(cell);
+    fragment.append(row);
+  });
+
+  rows.replaceChildren(fragment);
+  empty.style.display = "none";
+  table.style.display = "table";
+  updateStoredState();
+}
+
+textNodes().forEach((node) => {
+  node.addEventListener("click", () => {
+    selectedWord = node.dataset.word;
+    applyHighlight();
+    renderStatements();
+  });
+});
+
+document.getElementById("sort_statements").addEventListener("click", () => {
+  statementSortAscending = !statementSortAscending;
+  renderStatements();
+});
+
+function triggerDownload(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+function currentSvgString() {
+  const svg = document.querySelector("#cloud_container svg");
+  if (!svg) {
+    return null;
+  }
+
+  const clone = svg.cloneNode(true);
+  clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  clone.setAttribute("width", String(exportState.svgSize[0]));
+  clone.setAttribute("height", String(exportState.svgSize[1]));
+  return new XMLSerializer().serializeToString(clone);
+}
+
+document.getElementById("download_svg").addEventListener("click", () => {
+  const svgString = currentSvgString();
+  if (!svgString) {
+    return;
+  }
+  triggerDownload(new Blob([svgString], { type: "image/svg+xml" }), "wordcloud.svg");
+});
+
+document.getElementById("download_png").addEventListener("click", () => {
+  const svgString = currentSvgString();
+  if (!svgString) {
+    return;
+  }
+
+  const scale = 3;
+  const image = new Image();
+  const svgUrl = URL.createObjectURL(new Blob([svgString], { type: "image/svg+xml" }));
+
+  image.onload = () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = exportState.svgSize[0] * scale;
+    canvas.height = exportState.svgSize[1] * scale;
+    const context = canvas.getContext("2d");
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.scale(scale, scale);
+    context.drawImage(image, 0, 0);
+    URL.revokeObjectURL(svgUrl);
+    canvas.toBlob((blob) => {
+      if (blob) {
+        triggerDownload(blob, "wordcloud.png");
+      }
+    }, "image/png");
+  };
+
+  image.src = svgUrl;
+});
+
+document.getElementById("download_html").addEventListener("click", () => {
+  updateStoredState();
+  const html = "<!doctype html>\\n" + document.documentElement.outerHTML;
+  triggerDownload(new Blob([html], { type: "text/html" }), "wordcloud_export.html");
+});
+
+applyHighlight();
+renderStatements();
+`;
+}
+
+function buildStandaloneExportHtml() {
+  const svgString = renderer.getSvgString();
+  if (!svgString) {
+    return null;
+  }
+
+  const pageShell = document.querySelector(".page-shell").cloneNode(true);
+  const cloneElements = {
+    fileInput: pageShell.querySelector("#data_file"),
+    columnSelect: pageShell.querySelector("#statement_column"),
+    maxWordsInput: pageShell.querySelector("#max_words"),
+    fontSelect: pageShell.querySelector("#font_family"),
+    paletteSelect: pageShell.querySelector("#palette"),
+    shapeSelect: pageShell.querySelector("#shape"),
+    paddingInput: pageShell.querySelector("#padding"),
+    paddingValue: pageShell.querySelector("#padding_value"),
+    rotateInput: pageShell.querySelector("#rotate_prop"),
+    rotateValue: pageShell.querySelector("#rotate_prop_value"),
+    uploadMessage: pageShell.querySelector("#upload_message"),
+    cloudContainer: pageShell.querySelector("#cloud_container"),
+    cloudNote: pageShell.querySelector("#cloud_note"),
+    sortButton: pageShell.querySelector("#sort_statements"),
+  };
+
+  syncClonedSelect(cloneElements.columnSelect, state.selectedColumn, elements.columnSelect.disabled);
+  syncClonedInput(cloneElements.maxWordsInput, state.maxWords, false);
+  syncClonedSelect(cloneElements.fontSelect, state.fontFamily, false);
+  syncClonedSelect(cloneElements.paletteSelect, state.palette, false);
+  syncClonedSelect(cloneElements.shapeSelect, state.shape, false);
+  syncClonedInput(cloneElements.paddingInput, state.padding, false);
+  syncClonedInput(cloneElements.rotateInput, state.rotateProp, false);
+  cloneElements.paddingValue.textContent = elements.paddingValue.textContent;
+  cloneElements.rotateValue.textContent = elements.rotateValue.textContent;
+  cloneElements.uploadMessage.className = elements.uploadMessage.className;
+  cloneElements.uploadMessage.innerHTML = elements.uploadMessage.innerHTML;
+  cloneElements.cloudContainer.innerHTML = svgString;
+  cloneElements.cloudNote.textContent = elements.cloudNote.textContent;
+  cloneElements.sortButton.textContent = elements.sortStatementsButton.textContent;
+  cloneElements.sortButton.disabled = elements.sortStatementsButton.disabled;
+  cloneElements.fileInput.value = "";
+
+  const exportState = {
+    mapping: Object.fromEntries(state.statementMap.entries()),
+    selectedWord: state.selectedWord,
+    statementSortAscending: state.statementSortAscending,
+    svgSize: [elements.cloudContainer.clientWidth || 800, elements.cloudContainer.clientHeight || 500],
+  };
+
+  return [
+    "<!doctype html>",
+    '<html lang="en">',
+    "<head>",
+    '  <meta charset="UTF-8" />',
+    '  <meta name="viewport" content="width=device-width, initial-scale=1.0" />',
+    "  <title>Wordcloud</title>",
+    `  <style>${appStylesText}</style>`,
+    "</head>",
+    "<body>",
+    pageShell.outerHTML,
+    `  <script id="wordcloud-export-state" type="application/json">${escapeJsonForHtml(exportState)}</script>`,
+    `  <script>${buildStandaloneExportScript()}<\/script>`,
+    "</body>",
+    "</html>",
+  ].join("\n");
+}
+
+function downloadStandaloneHtml() {
+  const html = buildStandaloneExportHtml();
+  if (!html) {
+    return;
+  }
+
+  const blob = new Blob([html], { type: "text/html" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = "wordcloud_export.html";
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
 function renderApp() {
@@ -393,6 +659,10 @@ function attachEvents() {
     state.palette = event.target.value;
     renderApp();
   });
+  elements.shapeSelect.addEventListener("change", (event) => {
+    state.shape = event.target.value;
+    renderApp();
+  });
   elements.paddingInput.addEventListener("input", (event) => {
     state.padding = Number(event.target.value);
     elements.paddingValue.value = formatSliderValue(state.padding);
@@ -407,7 +677,7 @@ function attachEvents() {
     state.statementSortAscending = !state.statementSortAscending;
     renderStatements();
   });
-  elements.downloadHtmlButton.addEventListener("click", () => renderer.exportHtml());
+  elements.downloadHtmlButton.addEventListener("click", downloadStandaloneHtml);
   elements.downloadSvgButton.addEventListener("click", () => renderer.exportSvg());
   elements.downloadPngButton.addEventListener("click", () => renderer.exportPng());
   window.addEventListener("resize", () => renderCloud());

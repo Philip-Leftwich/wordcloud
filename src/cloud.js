@@ -30,6 +30,22 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
   let selectedWord = null;
   let currentRenderId = 0;
 
+  function getLayoutConfig(shape, width, height) {
+    const safeWidth = Math.max(1, Math.floor(width * 0.95));
+    const safeHeight = Math.max(1, Math.floor(height * 0.95));
+    const squareSize = Math.max(1, Math.floor(Math.min(width, height) * 0.95));
+
+    switch (shape) {
+      case "circle":
+        return { spiral: "archimedean", size: [squareSize, squareSize] };
+      case "square":
+        return { spiral: "rectangular", size: [squareSize, squareSize] };
+      case "oval":
+      default:
+        return { spiral: "archimedean", size: [safeWidth, safeHeight] };
+    }
+  }
+
   function renderSvg(target, words, width, height, font, interactive) {
     target.replaceChildren();
 
@@ -49,6 +65,7 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
       .selectAll("text")
       .data(words)
       .join("text")
+      .attr("data-word", (datum) => datum.text)
       .attr("transform", (datum) => `translate(${datum.x},${datum.y}) rotate(${datum.rotate})`)
       .attr("text-anchor", "middle")
       .style("font-family", font)
@@ -56,15 +73,15 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
       .style("fill", (datum) => datum.colour)
       .text((datum) => datum.text);
 
+    const applyHighlight = () => {
+      textSelection
+        .style("opacity", (datum) => (selectedWord === null || datum.text === selectedWord ? 1 : 0.35))
+        .style("font-weight", (datum) => (datum.text === selectedWord ? "bold" : "normal"));
+    };
+
+    applyHighlight();
+
     if (interactive) {
-      const applyHighlight = () => {
-        textSelection
-          .style("opacity", (datum) => (selectedWord === null || datum.text === selectedWord ? 1 : 0.35))
-          .style("font-weight", (datum) => (datum.text === selectedWord ? "bold" : "normal"));
-      };
-
-      applyHighlight();
-
       textSelection
         .style("cursor", "pointer")
         .on("mouseover", function handleMouseOver() {
@@ -103,7 +120,7 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
     lastSize = [width, height];
     lastMapping = message.mapping;
     lastFont = message.font;
-    selectedWord = message.selectedWord ?? selectedWord;
+    selectedWord = message.selectedWord ?? null;
 
     if (!message.words.length) {
       lastLayout = null;
@@ -112,6 +129,7 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
       return;
     }
 
+    const layout = getLayoutConfig(message.shape, width, height);
     const maxFrequency = Math.max(...message.freq);
     const minFrequency = Math.min(...message.freq);
     const wordCount = message.words.length;
@@ -145,10 +163,10 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
       }
 
       cloud()
-        .size([width * 0.95, height * 0.95])
+        .size(layout.size)
         .words(entries)
         .padding(message.padding)
-        .spiral("archimedean")
+        .spiral(layout.spiral)
         .font(message.font)
         .fontSize((datum) => datum.size)
         .rotate((datum) => datum.rotate)
@@ -171,8 +189,12 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
     });
   }
 
+  function getSvgString() {
+    return currentSvgString();
+  }
+
   function exportSvg() {
-    const svgString = currentSvgString();
+    const svgString = getSvgString();
     if (!svgString) {
       return;
     }
@@ -181,7 +203,7 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
   }
 
   function exportPng() {
-    const svgString = currentSvgString();
+    const svgString = getSvgString();
     if (!svgString) {
       return;
     }
@@ -210,66 +232,10 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
     image.src = svgUrl;
   }
 
-  function exportHtml() {
-    if (!lastLayout) {
-      return;
-    }
-
-    const holder = document.createElement("div");
-    renderSvg(holder, lastLayout, lastSize[0], lastSize[1], lastFont, false);
-    const svgString = new XMLSerializer().serializeToString(holder.firstChild);
-
-    const clickScript = [
-      `const mapping = ${JSON.stringify(lastMapping)};`,
-      "const svg = document.querySelector('svg');",
-      "svg.style.cursor = 'pointer';",
-      "svg.addEventListener('click', function (event) {",
-      "  const text = event.target.closest('text');",
-      "  if (!text) return;",
-      "  const word = text.textContent.trim();",
-      "  const rows = mapping[word];",
-      "  const root = document.getElementById('statements');",
-      "  root.replaceChildren();",
-      "  const heading = document.createElement('h2');",
-      "  heading.textContent = word;",
-      "  root.appendChild(heading);",
-      "  if (!rows || rows.length === 0) {",
-      "    const empty = document.createElement('p');",
-      "    empty.textContent = 'No statements found.';",
-      "    root.appendChild(empty);",
-      "    return;",
-      "  }",
-      "  const list = document.createElement('ul');",
-      "  rows.forEach(function (statement) {",
-      "    const item = document.createElement('li');",
-      "    item.textContent = statement;",
-      "    list.appendChild(item);",
-      "  });",
-      "  root.appendChild(list);",
-      "});",
-    ].join("\n");
-
-    const fontsHref =
-      "https://fonts.googleapis.com/css2?family=Lora&family=Merriweather&family=Montserrat&family=Oswald&family=Source+Sans+3&display=swap";
-
-    const html =
-      "<!doctype html><html><head><meta charset='utf-8'>" +
-      `<link rel='stylesheet' href='${fontsHref}'>` +
-      "<title>Wordcloud export</title></head><body>" +
-      "<h1>Wordcloud (standalone export, no R)</h1>" +
-      "<p>Click a word in the cloud to see its statements below.</p>" +
-      `<div style='max-width: 900px;'>${svgString}</div>` +
-      "<div id='statements'><p>Click a word above.</p></div>" +
-      `<script>${clickScript}<\/script>` +
-      "</body></html>";
-
-    triggerDownload(new Blob([html], { type: "text/html" }), "wordcloud_export.html");
-  }
-
   return {
     render,
+    getSvgString,
     exportSvg,
     exportPng,
-    exportHtml,
   };
 }
