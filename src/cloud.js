@@ -82,29 +82,32 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
     return { ...config, mask: createShapeMask(shape, config.size) };
   }
 
-  function wordPoints(word) {
+  function wordPoints(word, size) {
+    const [width, height] = size;
+    const offsetX = width / 2;
+    const offsetY = height / 2;
     const left = word.x + word.x0;
     const right = word.x + word.x1;
     const top = word.y + word.y0;
     const bottom = word.y + word.y1;
 
     return [
-      [word.x, word.y],
-      [left, top],
-      [left, bottom],
-      [right, top],
-      [right, bottom],
+      [word.x + offsetX, word.y + offsetY],
+      [left + offsetX, top + offsetY],
+      [left + offsetX, bottom + offsetY],
+      [right + offsetX, top + offsetY],
+      [right + offsetX, bottom + offsetY],
     ];
   }
 
-  function isWordInsideMask(word, mask) {
-    return wordPoints(word).every(([x, y]) => mask(x, y));
+  function isWordInsideMask(word, mask, size) {
+    return wordPoints(word, size).every(([x, y]) => mask(x, y));
   }
 
-  function pickBestLayout(attempts, mask) {
+  function pickBestLayout(attempts, layout) {
     return attempts.reduce(
       (best, placed) => {
-        const filtered = placed.filter((word) => isWordInsideMask(word, mask));
+        const filtered = placed.filter((word) => isWordInsideMask(word, layout.mask, layout.size));
         if (
           filtered.length > best.filtered.length ||
           (filtered.length === best.filtered.length && placed.length > best.placed.length)
@@ -299,7 +302,7 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
           return;
         }
 
-        const { filtered } = pickBestLayout(attempts, layout.mask);
+        const { filtered } = pickBestLayout(attempts, layout);
         lastLayout = filtered;
         if (selectedWord !== null && !filtered.some((datum) => datum.text === selectedWord)) {
           selectedWord = null;
