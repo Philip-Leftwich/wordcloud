@@ -350,7 +350,11 @@ function renderCloud() {
 }
 
 function escapeJsonForHtml(value) {
-  return JSON.stringify(value).replace(/</g, "\\u003c");
+  return JSON.stringify(value).replace(/[<>&]/g, (character) => ({
+    "<": "\\u003c",
+    ">": "\\u003e",
+    "&": "\\u0026",
+  })[character]);
 }
 
 function buildStandaloneExportScript() {
@@ -375,7 +379,8 @@ function applyHighlight() {
 }
 
 function renderStatements() {
-  const statements = selectedWord ? [...(exportState.mapping[selectedWord] ?? [])] : [];
+  const sourceStatements = selectedWord ? (exportState.mapping[selectedWord] ?? []) : [];
+  const statements = sourceStatements.length > 0 ? [...sourceStatements] : [];
   const sortButton = document.getElementById("sort_statements");
   const empty = document.getElementById("statements_empty");
   const table = document.querySelector(".statements-table");
