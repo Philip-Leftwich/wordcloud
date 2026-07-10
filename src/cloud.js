@@ -57,6 +57,10 @@ function createSizeScale(frequencies, height, wordCount, emphasis) {
   };
 }
 
+function canShrinkFurther(entries, scaleFactor, minimumSize) {
+  return entries.some((entry) => entry.baseSize * scaleFactor > minimumSize);
+}
+
 export function createCloudRenderer({ container, note, onSelectWord }) {
   let lastLayout = null;
   let lastMapping = {};
@@ -173,11 +177,13 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
       }
 
       const layoutOptions = resolveLayoutOptions(message.shape, width, height);
+      const minimumSize = 8;
+      const maxLayoutRetries = 8;
 
       const runLayout = (scaleFactor, attemptsRemaining) => {
         const layoutWords = entries.map((entry) => ({
           text: entry.text,
-          size: Math.max(8, entry.baseSize * scaleFactor),
+          size: Math.max(minimumSize, entry.baseSize * scaleFactor),
           colour: entry.colour,
           rotate: entry.rotate,
         }));
@@ -196,7 +202,11 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
               return;
             }
 
-            if (placed.length < layoutWords.length && attemptsRemaining > 0) {
+            if (
+              placed.length < layoutWords.length &&
+              attemptsRemaining > 0 &&
+              canShrinkFurther(entries, scaleFactor, minimumSize)
+            ) {
               runLayout(scaleFactor * 0.94, attemptsRemaining - 1);
               return;
             }
@@ -213,7 +223,7 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
           .start();
       };
 
-      runLayout(1, message.shape === "circle" ? 8 : 5);
+      runLayout(1, maxLayoutRetries);
     });
   }
 
