@@ -357,11 +357,12 @@ function buildStandaloneExportScript() {
   return `
 const exportStateNode = document.getElementById("wordcloud-export-state");
 const exportState = JSON.parse(exportStateNode.textContent);
+const wordSelector = "#cloud_container text[data-word]";
 let selectedWord = exportState.selectedWord;
 let statementSortAscending = exportState.statementSortAscending;
 
 function textNodes() {
-  return Array.from(document.querySelectorAll("#cloud_container text[data-word]"));
+  return Array.from(document.querySelectorAll(wordSelector));
 }
 
 function applyHighlight() {
@@ -498,7 +499,7 @@ function downloadStandaloneHtml() {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = "wordcloud_export.html";
+  anchor.download = "wordcloud-export.html";
   document.body.append(anchor);
   anchor.click();
   anchor.remove();

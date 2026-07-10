@@ -26,6 +26,10 @@ function triggerDownload(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
+function circleRadius(width, height) {
+  return Math.min(width, height) / 2;
+}
+
 export function createCloudRenderer({ container, note, onSelectWord }) {
   let lastLayout = null;
   let lastFont = "sans-serif";
@@ -45,7 +49,7 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
 
     switch (shape) {
       case "circle": {
-        const radius = Math.min(radiusX, radiusY);
+        const radius = circleRadius(width, height);
         return (x, y) => {
           const dx = x - centreX;
           const dy = y - centreY;
@@ -139,7 +143,7 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
           .append("circle")
           .attr("cx", width / 2)
           .attr("cy", height / 2)
-          .attr("r", Math.min(layoutWidth, layoutHeight) / 2);
+          .attr("r", circleRadius(layoutWidth, layoutHeight));
         break;
       case "square":
         clipPath
