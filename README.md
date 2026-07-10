@@ -38,6 +38,10 @@ You can try the app with `/home/runner/work/wordcloud/wordcloud/prototypes/sampl
 
 The repository still includes the earlier R/Shiny implementation in `/home/runner/work/wordcloud/wordcloud/app/` so the migration remains inspectable, but the published frontend is now the JavaScript app built from `/home/runner/work/wordcloud/wordcloud/src/`.
 
+## License
+
+This project is released under the MIT License. See `/home/runner/work/wordcloud/wordcloud/LICENSE`.
+
 ## Short explainer: D3
 
 D3 is a JavaScript library for drawing interactive, data-driven graphics in the browser. In this project, D3 works together with `d3-cloud` to position and render the words, handle word selection, and support client-side export of the current cloud.
