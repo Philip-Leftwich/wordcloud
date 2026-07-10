@@ -11,6 +11,7 @@ Live app: https://philip-leftwich.github.io/wordcloud/
 - Removes common stop words before counting terms
 - Builds an interactive word cloud in the browser
 - Lets the user switch the overall cloud shape between oval, circle, and square
+- Includes sliders to tune relative word-size and colour emphasis
 - Shows the source responses for any clicked word
 - Exports the current cloud in multiple formats, including a standalone HTML view that matches the app layout
 

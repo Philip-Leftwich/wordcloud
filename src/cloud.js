@@ -4,6 +4,7 @@ import cloud from "d3-cloud";
 const LAYOUT_SCALE_FACTOR = 0.95;
 const PRIMARY_LAYOUT_SEED = 42;
 const SECOND_PASS_LAYOUT_SEED = 4242;
+const FIT_RETRY_SCALES = [0.92, 0.85, 0.78, 0.72, 0.66];
 
 function mulberry32(seed) {
   return function random() {
@@ -264,6 +265,41 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
     });
   }
 
+  async function findBestFittedLayout(entries, layout, message) {
+    const evaluateScale = async (scale) => {
+      const scaledEntries = entries.map((entry) => ({
+        ...entry,
+        size: Math.max(4, entry.size * scale),
+      }));
+      const attempts = await Promise.all([
+        runLayoutAttempt(scaledEntries, layout, message, PRIMARY_LAYOUT_SEED),
+        runLayoutAttempt(scaledEntries, layout, message, SECOND_PASS_LAYOUT_SEED),
+      ]);
+      const best = pickBestLayout(attempts, layout);
+      return { ...best, scale };
+    };
+
+    let best = await evaluateScale(1);
+    if (best.filtered.length === entries.length) {
+      return best;
+    }
+
+    for (const scale of FIT_RETRY_SCALES) {
+      const candidate = await evaluateScale(scale);
+      if (
+        candidate.filtered.length > best.filtered.length ||
+        (candidate.filtered.length === best.filtered.length && candidate.scale > best.scale)
+      ) {
+        best = candidate;
+      }
+      if (candidate.filtered.length === entries.length) {
+        return candidate;
+      }
+    }
+
+    return best;
+  }
+
   function render(message) {
     currentRenderId += 1;
     const renderId = currentRenderId;
@@ -290,10 +326,14 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
     const wordCount = message.words.length;
     const maxSize = Math.min(90, (height / 5) * Math.sqrt(60 / Math.max(wordCount, 20)));
     const minSize = Math.max(10, maxSize / 6);
+    const sizePower = Math.max(0.25, message.sizeEmphasis ?? 1) / 2;
     const sizeScale =
       minFrequency === maxFrequency
         ? () => (minSize + maxSize) / 2
-        : d3.scaleSqrt().domain([minFrequency, maxFrequency]).range([minSize, maxSize]);
+        : (value) => {
+            const ratio = (value - minFrequency) / (maxFrequency - minFrequency);
+            return minSize + (maxSize - minSize) * Math.pow(ratio, sizePower);
+          };
 
     const rotationFlags = new Array(wordCount).fill(0);
     if (message.rotateProp > 0 && wordCount > 4) {
@@ -317,15 +357,11 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
         return;
       }
 
-      Promise.all([
-        runLayoutAttempt(entries, layout, message, PRIMARY_LAYOUT_SEED),
-        runLayoutAttempt(entries, layout, message, SECOND_PASS_LAYOUT_SEED),
-      ]).then((attempts) => {
+      findBestFittedLayout(entries, layout, message).then(({ filtered, scale }) => {
         if (renderId !== currentRenderId) {
           return;
         }
 
-        const { filtered } = pickBestLayout(attempts, layout);
         lastLayout = filtered;
         if (selectedWord !== null && !filtered.some((datum) => datum.text === selectedWord)) {
           selectedWord = null;
@@ -333,9 +369,12 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
         }
         renderSvg(container, filtered, width, height, message.font, lastShape, true);
         const dropped = entries.length - filtered.length;
-        note.textContent = dropped > 0
-          ? `${dropped} word(s) could not be placed in the final masked layout and are not shown.`
+        const scaleMessage = scale < 1
+          ? "Word sizes were reduced slightly to keep longer terms visible in the selected shape. "
           : "";
+        note.textContent = dropped > 0
+          ? `${scaleMessage}${dropped} word(s) could not be placed in the final masked layout and are not shown.`
+          : scaleMessage.trim();
       });
     });
   }
