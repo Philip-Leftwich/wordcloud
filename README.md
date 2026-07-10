@@ -40,7 +40,7 @@ The repository still includes the earlier R/Shiny implementation in `/home/runne
 
 ## License
 
-This project is released under the MIT License. See `/home/runner/work/wordcloud/wordcloud/LICENSE`.
+This project is released under the MIT License. See `LICENSE`.
 
 ## Short explainer: D3
 
