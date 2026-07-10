@@ -10,8 +10,9 @@ Live app: https://philip-leftwich.github.io/wordcloud/
 - Lets the user choose which column contains the responses
 - Removes common stop words before counting terms
 - Builds an interactive word cloud in the browser
+- Lets the user switch the overall cloud shape between oval, circle, and square
 - Shows the source responses for any clicked word
-- Exports the current cloud in multiple formats
+- Exports the current cloud in multiple formats, including a standalone HTML view that matches the app layout
 
 ## Project structure
 
@@ -36,6 +37,10 @@ You can try the app with `/home/runner/work/wordcloud/wordcloud/prototypes/sampl
 ## Legacy implementation
 
 The repository still includes the earlier R/Shiny implementation in `/home/runner/work/wordcloud/wordcloud/app/` so the migration remains inspectable, but the published frontend is now the JavaScript app built from `/home/runner/work/wordcloud/wordcloud/src/`.
+
+## License
+
+This project is released under the MIT License. See `LICENSE`.
 
 ## Short explainer: D3
 

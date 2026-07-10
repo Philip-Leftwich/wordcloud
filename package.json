@@ -12,8 +12,8 @@
     "url": "git+https://github.com/Philip-Leftwich/wordcloud.git"
   },
   "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "author": "Philip Leftwich",
+  "license": "MIT",
   "type": "module",
   "bugs": {
     "url": "https://github.com/Philip-Leftwich/wordcloud/issues"
