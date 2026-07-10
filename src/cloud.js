@@ -6,6 +6,10 @@ const MINIMUM_RENDER_SIZE = 8;
 const MAX_LAYOUT_RETRIES = 8;
 const LAYOUT_REDUCTION_FACTOR = 0.94;
 
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
 function mulberry32(seed) {
   return function random() {
     seed |= 0;
@@ -55,7 +59,7 @@ function createSizeScale(frequencies, height, wordCount, emphasis) {
 
   const domainWidth = maxFrequency - minFrequency;
   // Keep the emphasis slider within its UI bounds so layout behaviour stays predictable.
-  const scaleExponent = Math.max(SIZE_EMPHASIS_RANGE.min, Math.min(SIZE_EMPHASIS_RANGE.max, emphasis ?? 1));
+  const scaleExponent = clamp(emphasis ?? 1, SIZE_EMPHASIS_RANGE.min, SIZE_EMPHASIS_RANGE.max);
 
   return (frequency) => {
     const ratio = (frequency - minFrequency) / domainWidth;
