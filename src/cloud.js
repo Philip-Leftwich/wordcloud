@@ -1,6 +1,11 @@
 import * as d3 from "d3";
 import cloud from "d3-cloud";
 
+const SIZE_EMPHASIS_RANGE = Object.freeze({ min: 0.5, max: 2 });
+const MINIMUM_RENDER_SIZE = 8;
+const MAX_LAYOUT_RETRIES = 8;
+const LAYOUT_REDUCTION_FACTOR = 0.94;
+
 function mulberry32(seed) {
   return function random() {
     seed |= 0;
@@ -49,7 +54,8 @@ function createSizeScale(frequencies, height, wordCount, emphasis) {
   }
 
   const domainWidth = maxFrequency - minFrequency;
-  const scaleExponent = Math.max(0.5, Math.min(2, emphasis ?? 1));
+  // Keep the emphasis slider within its UI bounds so layout behaviour stays predictable.
+  const scaleExponent = Math.max(SIZE_EMPHASIS_RANGE.min, Math.min(SIZE_EMPHASIS_RANGE.max, emphasis ?? 1));
 
   return (frequency) => {
     const ratio = (frequency - minFrequency) / domainWidth;
@@ -177,13 +183,11 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
       }
 
       const layoutOptions = resolveLayoutOptions(message.shape, width, height);
-      const minimumSize = 8;
-      const maxLayoutRetries = 8;
 
       const runLayout = (scaleFactor, attemptsRemaining) => {
         const layoutWords = entries.map((entry) => ({
           text: entry.text,
-          size: Math.max(minimumSize, entry.baseSize * scaleFactor),
+          size: Math.max(MINIMUM_RENDER_SIZE, entry.baseSize * scaleFactor),
           colour: entry.colour,
           rotate: entry.rotate,
         }));
@@ -205,9 +209,9 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
             if (
               placed.length < layoutWords.length &&
               attemptsRemaining > 0 &&
-              canShrinkFurther(entries, scaleFactor, minimumSize)
+              canShrinkFurther(entries, scaleFactor, MINIMUM_RENDER_SIZE)
             ) {
-              runLayout(scaleFactor * 0.94, attemptsRemaining - 1);
+              runLayout(scaleFactor * LAYOUT_REDUCTION_FACTOR, attemptsRemaining - 1);
               return;
             }
 
@@ -223,7 +227,7 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
           .start();
       };
 
-      runLayout(1, maxLayoutRetries);
+      runLayout(1, MAX_LAYOUT_RETRIES);
     });
   }
 
