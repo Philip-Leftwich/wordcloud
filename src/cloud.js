@@ -165,7 +165,7 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
   }
 
   function tuneEntries(entries, retryIndex) {
-    const sizeMultiplier = LAYOUT_RETRY_MULTIPLIERS[retryIndex] ?? 1;
+    const sizeMultiplier = LAYOUT_RETRY_MULTIPLIERS[retryIndex];
     return entries.map((entry) => ({
       ...entry,
       size: Math.max(MIN_LAYOUT_FONT_SIZE, entry.baseSize * sizeMultiplier),
@@ -365,22 +365,26 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
     const rotationFlags = new Array(wordCount).fill(0);
     if (message.rotateProp > 0 && wordCount > 4) {
       const step = Math.round(1 / message.rotateProp);
-      for (let index = mandatoryCount; index < wordCount; index += 1) {
-        if ((index - mandatoryCount) % step === 0) {
+      const rotationStart = Math.max(3, mandatoryCount);
+      for (let index = rotationStart; index < wordCount; index += 1) {
+        if ((index - rotationStart) % step === 0) {
           rotationFlags[index] = 90;
         }
       }
     }
 
-    const entries = message.words.map((word, index) => ({
-      text: word,
-      baseSize: sizeScale(message.freq[index]),
-      size: sizeScale(message.freq[index]),
-      colour: message.colours[index],
-      rotate: rotationFlags[index],
-      lockRotation: index < mandatoryCount,
-      priorityScore: wordCount - index,
-    }));
+    const entries = message.words.map((word, index) => {
+      const size = sizeScale(message.freq[index]);
+      return {
+        text: word,
+        baseSize: size,
+        size,
+        colour: message.colours[index],
+        rotate: rotationFlags[index],
+        lockRotation: index < mandatoryCount,
+        priorityScore: wordCount - index,
+      };
+    });
     const mandatoryWords = entries.slice(0, mandatoryCount).map((entry) => entry.text);
 
     document.fonts.ready.then(() => {
