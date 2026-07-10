@@ -8,6 +8,7 @@ const MAX_MANDATORY_WORDS = 5;
 const LAYOUT_RETRY_MULTIPLIERS = [1, 0.94, 0.88, 0.82, 0.76];
 const MAX_PADDING_REDUCTION = 2;
 const MIN_LAYOUT_FONT_SIZE = 8;
+const MIN_ROTATION_START_INDEX = 3;
 
 function mulberry32(seed) {
   return function random() {
@@ -135,11 +136,11 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
     return left;
   }
 
-  function summariseLayout(placed, layout, mandatoryWords, totalNonMandatoryCount) {
+  function summariseLayout(placed, layout, mandatoryWords, mandatoryWeights, totalNonMandatoryCount) {
     const filtered = placed.filter((word) => isWordInsideMask(word, layout.mask, layout.size));
     const visibleWords = new Set(filtered.map((word) => word.text));
     const mandatoryScore = mandatoryWords.reduce((score, word, index) => (
-      visibleWords.has(word) ? score + 2 ** (mandatoryWords.length - index - 1) : score
+      visibleWords.has(word) ? score + mandatoryWeights[index] : score
     ), 0);
     const totalScore = filtered.reduce((score, word) => score + word.priorityScore, 0);
     const missingMandatoryCount = mandatoryWords.filter((word) => !visibleWords.has(word)).length;
@@ -156,9 +157,12 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
     };
   }
 
-  function pickBestLayout(attempts, layout, mandatoryWords, totalNonMandatoryCount) {
+  function pickBestLayout(attempts, layout, mandatoryWords, mandatoryWeights, totalNonMandatoryCount) {
     return attempts.reduce(
-      (best, placed) => compareLayoutSummaries(best, summariseLayout(placed, layout, mandatoryWords, totalNonMandatoryCount)),
+      (best, placed) => compareLayoutSummaries(
+        best,
+        summariseLayout(placed, layout, mandatoryWords, mandatoryWeights, totalNonMandatoryCount)
+      ),
       {
         placed: [],
         filtered: [],
@@ -320,7 +324,7 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
     });
   }
 
-  async function resolveLayout(entries, layout, message, mandatoryWords) {
+  async function resolveLayout(entries, layout, message, mandatoryWords, mandatoryWeights) {
     let best = null;
     const totalNonMandatoryCount = Math.max(0, entries.length - mandatoryWords.length);
 
@@ -332,7 +336,7 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
         runLayoutAttempt(tunedEntries, layout, { font: message.font, padding }, PRIMARY_LAYOUT_SEED + seedOffset),
         runLayoutAttempt(tunedEntries, layout, { font: message.font, padding }, SECOND_PASS_LAYOUT_SEED + seedOffset),
       ]);
-      const candidate = pickBestLayout(attempts, layout, mandatoryWords, totalNonMandatoryCount);
+      const candidate = pickBestLayout(attempts, layout, mandatoryWords, mandatoryWeights, totalNonMandatoryCount);
       best = best === null ? candidate : compareLayoutSummaries(best, candidate);
       if (candidate.missingMandatoryCount === 0) {
         return candidate;
@@ -377,7 +381,7 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
     const rotationFlags = new Array(wordCount).fill(0);
     if (message.rotateProp > 0 && wordCount > 4) {
       const step = Math.round(1 / message.rotateProp);
-      const rotationStart = Math.max(3, mandatoryCount);
+      const rotationStart = Math.max(MIN_ROTATION_START_INDEX, mandatoryCount);
       for (let index = rotationStart; index < wordCount; index += 1) {
         if ((index - rotationStart) % step === 0) {
           rotationFlags[index] = 90;
@@ -398,13 +402,14 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
       };
     });
     const mandatoryWords = entries.slice(0, mandatoryCount).map((entry) => entry.text);
+    const mandatoryWeights = mandatoryWords.map((_, index) => 2 ** (mandatoryWords.length - index - 1));
 
     document.fonts.ready.then(() => {
       if (renderId !== currentRenderId) {
         return;
       }
 
-      resolveLayout(entries, layout, message, mandatoryWords).then((bestLayout) => {
+      resolveLayout(entries, layout, message, mandatoryWords, mandatoryWeights).then((bestLayout) => {
         if (renderId !== currentRenderId) {
           return;
         }
