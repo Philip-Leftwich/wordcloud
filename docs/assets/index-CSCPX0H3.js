@@ -41,6 +41,25 @@ select {
   padding: 1.5rem;
 }
 
+.page-footer {
+  margin-top: 1rem;
+  color: #52606d;
+  font-size: 0.9rem;
+  text-align: center;
+}
+
+.page-footer p {
+  margin: 0;
+}
+
+.page-footer a {
+  color: inherit;
+}
+
+.page-footer a:hover {
+  color: #1f4e79;
+}
+
 .page-header h1 {
   margin: 0 0 1rem;
 }
