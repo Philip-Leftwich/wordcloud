@@ -349,45 +349,24 @@ function renderCloud() {
   });
 }
 
-function syncClonedSelect(select, value, disabled) {
-  select.value = value;
-  Array.from(select.options).forEach((option) => {
-    const isSelected = option.value === value;
-    option.selected = isSelected;
-    option.toggleAttribute("selected", isSelected);
-  });
-  select.disabled = disabled;
-}
-
-function syncClonedInput(input, value, disabled) {
-  input.value = String(value);
-  input.setAttribute("value", String(value));
-  input.disabled = disabled;
-}
-
 function escapeJsonForHtml(value) {
-  return JSON.stringify(value).replace(/</g, "\\u003c");
+  return JSON.stringify(value).replace(/[<>&]/g, (character) => ({
+    "<": "\\u003c",
+    ">": "\\u003e",
+    "&": "\\u0026",
+  })[character]);
 }
 
 function buildStandaloneExportScript() {
   return `
-function escapeJsonForHtml(value) {
-  return JSON.stringify(value).replace(/</g, "\\u003c");
-}
-
 const exportStateNode = document.getElementById("wordcloud-export-state");
 const exportState = JSON.parse(exportStateNode.textContent);
+const wordSelector = "#cloud_container text[data-word]";
 let selectedWord = exportState.selectedWord;
 let statementSortAscending = exportState.statementSortAscending;
 
-function updateStoredState() {
-  exportState.selectedWord = selectedWord;
-  exportState.statementSortAscending = statementSortAscending;
-  exportStateNode.textContent = escapeJsonForHtml(exportState);
-}
-
 function textNodes() {
-  return Array.from(document.querySelectorAll("#cloud_container text[data-word]"));
+  return Array.from(document.querySelectorAll(wordSelector));
 }
 
 function applyHighlight() {
@@ -400,7 +379,8 @@ function applyHighlight() {
 }
 
 function renderStatements() {
-  const statements = selectedWord ? [...(exportState.mapping[selectedWord] ?? [])] : [];
+  const sourceStatements = selectedWord ? (exportState.mapping[selectedWord] ?? []) : [];
+  const statements = sourceStatements.length > 0 ? [...sourceStatements] : [];
   const sortButton = document.getElementById("sort_statements");
   const empty = document.getElementById("statements_empty");
   const table = document.querySelector(".statements-table");
@@ -414,7 +394,6 @@ function renderStatements() {
     empty.style.display = "block";
     table.style.display = "none";
     rows.replaceChildren();
-    updateStoredState();
     return;
   }
 
@@ -435,91 +414,33 @@ function renderStatements() {
   rows.replaceChildren(fragment);
   empty.style.display = "none";
   table.style.display = "table";
-  updateStoredState();
 }
 
 textNodes().forEach((node) => {
-  node.addEventListener("click", () => {
+  node.addEventListener("mouseover", () => {
+    node.style.opacity = "0.6";
+  });
+  node.addEventListener("mouseout", applyHighlight);
+  node.addEventListener("click", (event) => {
+    event.stopPropagation();
     selectedWord = node.dataset.word;
     applyHighlight();
     renderStatements();
   });
 });
 
-document.getElementById("sort_statements").addEventListener("click", () => {
-  statementSortAscending = !statementSortAscending;
+document.querySelector("#cloud_container svg")?.addEventListener("click", (event) => {
+  if (event.target.closest("text")) {
+    return;
+  }
+  selectedWord = null;
+  applyHighlight();
   renderStatements();
 });
 
-function triggerDownload(blob, filename) {
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  document.body.append(anchor);
-  anchor.click();
-  anchor.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 10000);
-}
-
-function currentSvgString() {
-  const svg = document.querySelector("#cloud_container svg");
-  if (!svg) {
-    return null;
-  }
-
-  const clone = svg.cloneNode(true);
-  clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
-  clone.setAttribute("width", String(exportState.svgSize[0]));
-  clone.setAttribute("height", String(exportState.svgSize[1]));
-  return new XMLSerializer().serializeToString(clone);
-}
-
-document.getElementById("download_svg").addEventListener("click", () => {
-  const svgString = currentSvgString();
-  if (!svgString) {
-    return;
-  }
-  triggerDownload(new Blob([svgString], { type: "image/svg+xml" }), "wordcloud.svg");
-});
-
-document.getElementById("download_png").addEventListener("click", () => {
-  const svgString = currentSvgString();
-  if (!svgString) {
-    return;
-  }
-
-  const scale = 3;
-  const image = new Image();
-  const svgUrl = URL.createObjectURL(new Blob([svgString], { type: "image/svg+xml" }));
-
-  image.onload = () => {
-    const canvas = document.createElement("canvas");
-    canvas.width = exportState.svgSize[0] * scale;
-    canvas.height = exportState.svgSize[1] * scale;
-    const context = canvas.getContext("2d");
-    context.fillStyle = "#ffffff";
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    context.scale(scale, scale);
-    context.drawImage(image, 0, 0);
-    URL.revokeObjectURL(svgUrl);
-    canvas.toBlob((blob) => {
-      if (blob) {
-        triggerDownload(blob, "wordcloud.png");
-      }
-    }, "image/png");
-  };
-
-  image.src = svgUrl;
-});
-
-document.getElementById("download_html").addEventListener("click", () => {
-  updateStoredState();
-  const clone = document.documentElement.cloneNode(true);
-  clone.querySelector("#wordcloud-export-state").textContent = exportStateNode.textContent;
-  const html = \`<!doctype html>
-\${clone.outerHTML}\`;
-  triggerDownload(new Blob([html], { type: "text/html" }), "wordcloud_export.html");
+document.getElementById("sort_statements").addEventListener("click", () => {
+  statementSortAscending = !statementSortAscending;
+  renderStatements();
 });
 
 applyHighlight();
@@ -534,47 +455,25 @@ function buildStandaloneExportHtml() {
   }
 
   const pageShell = document.querySelector(".page-shell").cloneNode(true);
+  pageShell.querySelector(".controls-card")?.remove();
   const cloneElements = {
-    fileInput: pageShell.querySelector("#data_file"),
-    columnSelect: pageShell.querySelector("#statement_column"),
-    maxWordsInput: pageShell.querySelector("#max_words"),
-    fontSelect: pageShell.querySelector("#font_family"),
-    paletteSelect: pageShell.querySelector("#palette"),
-    shapeSelect: pageShell.querySelector("#shape"),
-    paddingInput: pageShell.querySelector("#padding"),
-    paddingValue: pageShell.querySelector("#padding_value"),
-    rotateInput: pageShell.querySelector("#rotate_prop"),
-    rotateValue: pageShell.querySelector("#rotate_prop_value"),
     uploadMessage: pageShell.querySelector("#upload_message"),
     cloudContainer: pageShell.querySelector("#cloud_container"),
     cloudNote: pageShell.querySelector("#cloud_note"),
     sortButton: pageShell.querySelector("#sort_statements"),
   };
 
-  syncClonedSelect(cloneElements.columnSelect, state.selectedColumn, elements.columnSelect.disabled);
-  syncClonedInput(cloneElements.maxWordsInput, state.maxWords, false);
-  syncClonedSelect(cloneElements.fontSelect, state.fontFamily, false);
-  syncClonedSelect(cloneElements.paletteSelect, state.palette, false);
-  syncClonedSelect(cloneElements.shapeSelect, state.shape, false);
-  syncClonedInput(cloneElements.paddingInput, state.padding, false);
-  syncClonedInput(cloneElements.rotateInput, state.rotateProp, false);
-  cloneElements.paddingValue.value = elements.paddingValue.value;
-  cloneElements.paddingValue.textContent = elements.paddingValue.value || elements.paddingValue.textContent;
-  cloneElements.rotateValue.value = elements.rotateValue.value;
-  cloneElements.rotateValue.textContent = elements.rotateValue.value || elements.rotateValue.textContent;
   cloneElements.uploadMessage.className = elements.uploadMessage.className;
   cloneElements.uploadMessage.innerHTML = elements.uploadMessage.innerHTML;
   cloneElements.cloudContainer.innerHTML = svgString;
   cloneElements.cloudNote.textContent = elements.cloudNote.textContent;
   cloneElements.sortButton.textContent = elements.sortStatementsButton.textContent;
   cloneElements.sortButton.disabled = elements.sortStatementsButton.disabled;
-  cloneElements.fileInput.value = "";
 
   const exportState = {
     mapping: Object.fromEntries(state.statementMap.entries()),
     selectedWord: state.selectedWord,
     statementSortAscending: state.statementSortAscending,
-    svgSize: [elements.cloudContainer.clientWidth || 800, elements.cloudContainer.clientHeight || 500],
   };
 
   return [
@@ -605,7 +504,7 @@ function downloadStandaloneHtml() {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = "wordcloud_export.html";
+  anchor.download = "wordcloud-export.html";
   document.body.append(anchor);
   anchor.click();
   anchor.remove();

@@ -26,9 +26,12 @@ function triggerDownload(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
+function circleRadius(width, height) {
+  return Math.min(width, height) / 2;
+}
+
 export function createCloudRenderer({ container, note, onSelectWord }) {
   let lastLayout = null;
-  let lastMapping = {};
   let lastFont = "sans-serif";
   let lastShape = "oval";
   let lastSize = [800, 500];
@@ -46,7 +49,7 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
 
     switch (shape) {
       case "circle": {
-        const radius = Math.min(radiusX, radiusY);
+        const radius = circleRadius(width, height);
         return (x, y) => {
           const dx = x - centreX;
           const dy = y - centreY;
@@ -140,7 +143,7 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
           .append("circle")
           .attr("cx", width / 2)
           .attr("cy", height / 2)
-          .attr("r", Math.min(layoutWidth, layoutHeight) / 2);
+          .attr("r", circleRadius(layoutWidth, layoutHeight));
         break;
       case "square":
         clipPath
@@ -164,7 +167,7 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
     return clipId;
   }
 
-  function renderSvg(target, words, width, height, font, shape, interactive) {
+  function renderSvg(target, words, width, height, font, shape, interactive, selectedWordOverride = selectedWord) {
     target.replaceChildren();
 
     const svg = d3
@@ -195,37 +198,50 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
       .text((datum) => datum.text);
 
     const applyHighlight = () => {
+      const activeWord = interactive ? selectedWord : selectedWordOverride;
       textSelection
-        .style("opacity", (datum) => (selectedWord === null || datum.text === selectedWord ? 1 : 0.35))
-        .style("font-weight", (datum) => (datum.text === selectedWord ? "bold" : "normal"));
+        .style("opacity", (datum) => (activeWord === null || datum.text === activeWord ? 1 : 0.35))
+        .style("font-weight", (datum) => (datum.text === activeWord ? "bold" : "normal"));
     };
 
     applyHighlight();
 
     if (interactive) {
+      const setSelectedWord = (nextWord) => {
+        selectedWord = nextWord;
+        applyHighlight();
+        onSelectWord(nextWord);
+      };
+
+      svg.on("click", (event) => {
+        if (event.target.closest("text")) {
+          return;
+        }
+        setSelectedWord(null);
+      });
+
       textSelection
         .style("cursor", "pointer")
         .on("mouseover", function handleMouseOver() {
           d3.select(this).style("opacity", 0.6);
         })
         .on("mouseout", applyHighlight)
-        .on("click", function handleClick(_event, datum) {
-          selectedWord = datum.text;
-          applyHighlight();
-          onSelectWord(datum.text);
+        .on("click", function handleClick(event, datum) {
+          event.stopPropagation();
+          setSelectedWord(datum.text);
         });
     }
 
     return svg.node();
   }
 
-  function currentSvgString() {
+  function currentSvgString(selectedWordOverride = selectedWord) {
     if (!lastLayout) {
       return null;
     }
 
     const holder = document.createElement("div");
-    renderSvg(holder, lastLayout, lastSize[0], lastSize[1], lastFont, lastShape, false);
+    renderSvg(holder, lastLayout, lastSize[0], lastSize[1], lastFont, lastShape, false, selectedWordOverride);
     const svg = holder.firstChild;
     svg.setAttribute("width", String(lastSize[0]));
     svg.setAttribute("height", String(lastSize[1]));
@@ -254,13 +270,11 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
 
     const width = container.clientWidth || 800;
     const height = container.clientHeight || 500;
-    const nextSelectedWord = message.selectedWord;
     lastSize = [width, height];
-    lastMapping = message.mapping;
     lastFont = message.font;
-    lastShape = message.shape;
-    if (nextSelectedWord !== undefined) {
-      selectedWord = nextSelectedWord;
+    lastShape = message.shape ?? lastShape;
+    if (message.selectedWord !== undefined) {
+      selectedWord = message.selectedWord;
     }
 
     if (!message.words.length) {
@@ -270,7 +284,7 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
       return;
     }
 
-    const layout = getLayoutConfig(message.shape, width, height);
+    const layout = getLayoutConfig(lastShape, width, height);
     const maxFrequency = Math.max(...message.freq);
     const minFrequency = Math.min(...message.freq);
     const wordCount = message.words.length;
@@ -317,7 +331,7 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
           selectedWord = null;
           onSelectWord(null);
         }
-        renderSvg(container, filtered, width, height, message.font, message.shape, true);
+        renderSvg(container, filtered, width, height, message.font, lastShape, true);
         const dropped = entries.length - filtered.length;
         note.textContent = dropped > 0
           ? `${dropped} word(s) could not be placed in the final masked layout and are not shown.`
@@ -326,12 +340,12 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
     });
   }
 
-  function getSvgString() {
-    return currentSvgString();
+  function getSvgString(selectedWordOverride = selectedWord) {
+    return currentSvgString(selectedWordOverride);
   }
 
   function exportSvg() {
-    const svgString = getSvgString();
+    const svgString = getSvgString(null);
     if (!svgString) {
       return;
     }
@@ -340,7 +354,7 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
   }
 
   function exportPng() {
-    const svgString = getSvgString();
+    const svgString = getSvgString(null);
     if (!svgString) {
       return;
     }
