@@ -455,6 +455,7 @@ function buildStandaloneExportHtml() {
   }
 
   const pageShell = document.querySelector(".page-shell").cloneNode(true);
+  pageShell.classList.add("standalone-export");
   pageShell.querySelector(".controls-card")?.remove();
   const cloneElements = {
     uploadMessage: pageShell.querySelector("#upload_message"),
