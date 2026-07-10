@@ -176,6 +176,7 @@ function isTextColumn(records, column) {
 function paletteColours(name, values, emphasis = 1) {
   const min = Math.min(...values);
   const max = Math.max(...values);
+  const emphasisExponent = emphasis / 2;
   const interpolator = {
     Viridis: d3.interpolateViridis,
     Magma: d3.interpolateMagma,
@@ -190,7 +191,7 @@ function paletteColours(name, values, emphasis = 1) {
 
   return values.map((value) => {
     const ratio = (value - min) / (max - min);
-    const adjustedRatio = Math.pow(ratio, emphasis / 2);
+    const adjustedRatio = Math.pow(ratio, emphasisExponent);
     const scaled = 0.1 + adjustedRatio * 0.8;
     return interpolator(name === "Viridis" ? scaled : name === "Magma" ? 0.15 + adjustedRatio * 0.7 : scaled);
   });

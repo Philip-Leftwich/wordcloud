@@ -5,6 +5,7 @@ const LAYOUT_SCALE_FACTOR = 0.95;
 const PRIMARY_LAYOUT_SEED = 42;
 const SECOND_PASS_LAYOUT_SEED = 4242;
 const FIT_ATTEMPT_SCALE_FACTORS = [0.92, 0.85, 0.78, 0.72, 0.66];
+const MIN_FONT_SIZE = 4;
 const REDUCED_SIZE_NOTE = "Word sizes were reduced slightly to keep longer terms visible in the selected shape.";
 
 function mulberry32(seed) {
@@ -270,7 +271,7 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
     const evaluateScale = async (scale) => {
       const scaledEntries = entries.map((entry) => ({
         ...entry,
-        size: Math.max(4, entry.size * scale),
+        size: Math.max(MIN_FONT_SIZE, entry.size * scale),
       }));
       const attempts = await Promise.all([
         runLayoutAttempt(scaledEntries, layout, message, PRIMARY_LAYOUT_SEED),
