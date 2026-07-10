@@ -1,6 +1,15 @@
 import * as d3 from "d3";
 import cloud from "d3-cloud";
 
+const SIZE_EMPHASIS_RANGE = Object.freeze({ min: 0.5, max: 2 });
+const MINIMUM_RENDER_SIZE = 8;
+const MAX_LAYOUT_RETRIES = 8;
+const LAYOUT_REDUCTION_FACTOR = 0.94;
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
 function mulberry32(seed) {
   return function random() {
     seed |= 0;
@@ -20,6 +29,46 @@ function triggerDownload(blob, filename) {
   anchor.click();
   anchor.remove();
   setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+function resolveLayoutOptions(shape, width, height) {
+  const insetWidth = width * 0.95;
+  const insetHeight = height * 0.95;
+  const side = Math.min(insetWidth, insetHeight);
+
+  if (shape === "circle") {
+    return { size: [side, side], spiral: "archimedean" };
+  }
+
+  if (shape === "square") {
+    return { size: [side, side], spiral: "rectangular" };
+  }
+
+  return { size: [insetWidth, insetHeight], spiral: "archimedean" };
+}
+
+function createSizeScale(frequencies, height, wordCount, emphasis = 1) {
+  const maxFrequency = Math.max(...frequencies);
+  const minFrequency = Math.min(...frequencies);
+  const maxSize = Math.min(90, (height / 5) * Math.sqrt(60 / Math.max(wordCount, 20)));
+  const minSize = Math.max(10, maxSize / 6);
+
+  if (minFrequency === maxFrequency) {
+    return () => (minSize + maxSize) / 2;
+  }
+
+  const domainWidth = maxFrequency - minFrequency;
+  // Keep the emphasis slider within its UI bounds so layout behaviour stays predictable.
+  const scaleExponent = clamp(emphasis, SIZE_EMPHASIS_RANGE.min, SIZE_EMPHASIS_RANGE.max);
+
+  return (frequency) => {
+    const ratio = (frequency - minFrequency) / domainWidth;
+    return minSize + (maxSize - minSize) * ratio ** scaleExponent;
+  };
+}
+
+function canShrinkFurther(entries, scaleFactor, minimumSize) {
+  return entries.some((entry) => entry.initialSize * scaleFactor > minimumSize);
 }
 
 export function createCloudRenderer({ container, note, onSelectWord }) {
@@ -103,7 +152,7 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
     lastSize = [width, height];
     lastMapping = message.mapping;
     lastFont = message.font;
-    selectedWord = message.selectedWord ?? selectedWord;
+    selectedWord = message.selectedWord === undefined ? selectedWord : message.selectedWord;
 
     if (!message.words.length) {
       lastLayout = null;
@@ -112,15 +161,8 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
       return;
     }
 
-    const maxFrequency = Math.max(...message.freq);
-    const minFrequency = Math.min(...message.freq);
     const wordCount = message.words.length;
-    const maxSize = Math.min(90, (height / 5) * Math.sqrt(60 / Math.max(wordCount, 20)));
-    const minSize = Math.max(10, maxSize / 6);
-    const sizeScale =
-      minFrequency === maxFrequency
-        ? () => (minSize + maxSize) / 2
-        : d3.scaleSqrt().domain([minFrequency, maxFrequency]).range([minSize, maxSize]);
+    const sizeScale = createSizeScale(message.freq, height, wordCount, message.emphasis);
 
     const rotationFlags = new Array(wordCount).fill(0);
     if (message.rotateProp > 0 && wordCount > 4) {
@@ -134,7 +176,7 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
 
     const entries = message.words.map((word, index) => ({
       text: word,
-      size: sizeScale(message.freq[index]),
+      initialSize: sizeScale(message.freq[index]),
       colour: message.colours[index],
       rotate: rotationFlags[index],
     }));
@@ -144,30 +186,52 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
         return;
       }
 
-      cloud()
-        .size([width * 0.95, height * 0.95])
-        .words(entries)
-        .padding(message.padding)
-        .spiral("archimedean")
-        .font(message.font)
-        .fontSize((datum) => datum.size)
-        .rotate((datum) => datum.rotate)
-        .random(mulberry32(42))
-        .on("end", (placed) => {
-          if (renderId !== currentRenderId) {
-            return;
-          }
+      const layoutOptions = resolveLayoutOptions(message.shape, width, height);
 
-          lastLayout = placed;
-          if (selectedWord !== null && !placed.some((datum) => datum.text === selectedWord)) {
-            selectedWord = null;
-            onSelectWord(null);
-          }
-          renderSvg(container, placed, width, height, message.font, true);
-          const dropped = entries.length - placed.length;
-          note.textContent = dropped > 0 ? `${dropped} word(s) could not be placed and are not shown.` : "";
-        })
-        .start();
+      const runLayout = (scaleFactor, attemptsRemaining) => {
+        const layoutWords = entries.map((entry) => ({
+          text: entry.text,
+          size: Math.max(MINIMUM_RENDER_SIZE, entry.initialSize * scaleFactor),
+          colour: entry.colour,
+          rotate: entry.rotate,
+        }));
+
+        cloud()
+          .size(layoutOptions.size)
+          .words(layoutWords)
+          .padding(message.padding)
+          .spiral(layoutOptions.spiral)
+          .font(message.font)
+          .fontSize((datum) => datum.size)
+          .rotate((datum) => datum.rotate)
+          .random(mulberry32(42))
+          .on("end", (placed) => {
+            if (renderId !== currentRenderId) {
+              return;
+            }
+
+            if (
+              placed.length < layoutWords.length &&
+              attemptsRemaining > 0 &&
+              canShrinkFurther(entries, scaleFactor, MINIMUM_RENDER_SIZE)
+            ) {
+              runLayout(scaleFactor * LAYOUT_REDUCTION_FACTOR, attemptsRemaining - 1);
+              return;
+            }
+
+            lastLayout = placed;
+            if (selectedWord !== null && !placed.some((datum) => datum.text === selectedWord)) {
+              selectedWord = null;
+              onSelectWord(null);
+            }
+            renderSvg(container, placed, width, height, message.font, true);
+            const dropped = layoutWords.length - placed.length;
+            note.textContent = dropped > 0 ? `${dropped} word(s) could not be placed and are not shown.` : "";
+          })
+          .start();
+      };
+
+      runLayout(1, MAX_LAYOUT_RETRIES);
     });
   }
 
