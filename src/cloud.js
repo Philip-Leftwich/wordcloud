@@ -1,6 +1,10 @@
 import * as d3 from "d3";
 import cloud from "d3-cloud";
 
+const LAYOUT_SCALE_FACTOR = 0.95;
+const PRIMARY_LAYOUT_SEED = 42;
+const SECOND_PASS_LAYOUT_SEED = 4242;
+
 function mulberry32(seed) {
   return function random() {
     seed |= 0;
@@ -22,25 +26,144 @@ function triggerDownload(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
-function escapeHtml(value) {
-  return String(value).replace(/[&<>"']/g, (character) => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#39;",
-  })[character]);
-}
-
 export function createCloudRenderer({ container, note, onSelectWord }) {
   let lastLayout = null;
-  let lastMapping = {};
   let lastFont = "sans-serif";
+  let lastShape = "oval";
   let lastSize = [800, 500];
   let selectedWord = null;
   let currentRenderId = 0;
+  let clipPathId = 0;
 
-  function renderSvg(target, words, width, height, font, interactive) {
+  function createShapeMask(shape, size) {
+    const [width, height] = size;
+    const centreX = width / 2;
+    const centreY = height / 2;
+    const radiusX = width / 2;
+    const radiusY = height / 2;
+    const squareHalf = Math.min(width, height) / 2;
+
+    switch (shape) {
+      case "circle": {
+        const radius = Math.min(radiusX, radiusY);
+        return (x, y) => {
+          const dx = x - centreX;
+          const dy = y - centreY;
+          return dx * dx + dy * dy <= radius * radius;
+        };
+      }
+      case "square":
+        return (x, y) => Math.abs(x - centreX) <= squareHalf && Math.abs(y - centreY) <= squareHalf;
+      case "oval":
+      default:
+        return (x, y) => {
+          const dx = (x - centreX) / radiusX;
+          const dy = (y - centreY) / radiusY;
+          return dx * dx + dy * dy <= 1;
+        };
+    }
+  }
+
+  function getLayoutConfig(shape, width, height) {
+    const safeWidth = Math.max(1, Math.floor(width * LAYOUT_SCALE_FACTOR));
+    const safeHeight = Math.max(1, Math.floor(height * LAYOUT_SCALE_FACTOR));
+    const squareSize = Math.max(1, Math.floor(Math.min(width, height) * LAYOUT_SCALE_FACTOR));
+    let config;
+
+    switch (shape) {
+      case "circle":
+        config = { spiral: "archimedean", size: [squareSize, squareSize] };
+        break;
+      case "square":
+        config = { spiral: "rectangular", size: [squareSize, squareSize] };
+        break;
+      case "oval":
+      default:
+        config = { spiral: "archimedean", size: [safeWidth, safeHeight] };
+        break;
+    }
+
+    return { ...config, mask: createShapeMask(shape, config.size) };
+  }
+
+  function wordPoints(word, size) {
+    const [width, height] = size;
+    const offsetX = width / 2;
+    const offsetY = height / 2;
+    const left = word.x + word.x0;
+    const right = word.x + word.x1;
+    const top = word.y + word.y0;
+    const bottom = word.y + word.y1;
+
+    return [
+      [word.x + offsetX, word.y + offsetY],
+      [left + offsetX, top + offsetY],
+      [left + offsetX, bottom + offsetY],
+      [right + offsetX, top + offsetY],
+      [right + offsetX, bottom + offsetY],
+    ];
+  }
+
+  function isWordInsideMask(word, mask, size) {
+    return wordPoints(word, size).every(([x, y]) => mask(x, y));
+  }
+
+  function pickBestLayout(attempts, layout) {
+    return attempts.reduce(
+      (best, placed) => {
+        const filtered = placed.filter((word) => isWordInsideMask(word, layout.mask, layout.size));
+        if (
+          filtered.length > best.filtered.length ||
+          (filtered.length === best.filtered.length && placed.length > best.placed.length)
+        ) {
+          return { placed, filtered };
+        }
+        return best;
+      },
+      { placed: [], filtered: [] }
+    );
+  }
+
+  function appendClipPath(svg, shape, width, height) {
+    clipPathId += 1;
+    const clipId = `wordcloud-clip-${clipPathId}`;
+    const layout = getLayoutConfig(shape, width, height);
+    const [layoutWidth, layoutHeight] = layout.size;
+    const offsetX = (width - layoutWidth) / 2;
+    const offsetY = (height - layoutHeight) / 2;
+    const clipPath = svg.append("defs").append("clipPath").attr("id", clipId).attr("clipPathUnits", "userSpaceOnUse");
+
+    switch (shape) {
+      case "circle":
+        clipPath
+          .append("circle")
+          .attr("cx", width / 2)
+          .attr("cy", height / 2)
+          .attr("r", Math.min(layoutWidth, layoutHeight) / 2);
+        break;
+      case "square":
+        clipPath
+          .append("rect")
+          .attr("x", offsetX)
+          .attr("y", offsetY)
+          .attr("width", layoutWidth)
+          .attr("height", layoutHeight);
+        break;
+      case "oval":
+      default:
+        clipPath
+          .append("ellipse")
+          .attr("cx", width / 2)
+          .attr("cy", height / 2)
+          .attr("rx", layoutWidth / 2)
+          .attr("ry", layoutHeight / 2);
+        break;
+    }
+
+    return clipId;
+  }
+
+  function renderSvg(target, words, width, height, font, shape, interactive, selectedWordOverride = selectedWord) {
     target.replaceChildren();
 
     const svg = d3
@@ -51,7 +174,10 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
       .attr("width", "100%")
       .attr("height", "100%");
 
+    const clipId = appendClipPath(svg, shape, width, height);
     const group = svg
+      .append("g")
+      .attr("clip-path", `url(#${clipId})`)
       .append("g")
       .attr("transform", `translate(${width / 2},${height / 2})`);
 
@@ -59,6 +185,7 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
       .selectAll("text")
       .data(words)
       .join("text")
+      .attr("data-word", (datum) => datum.text)
       .attr("transform", (datum) => `translate(${datum.x},${datum.y}) rotate(${datum.rotate})`)
       .attr("text-anchor", "middle")
       .style("font-family", font)
@@ -66,20 +193,21 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
       .style("fill", (datum) => datum.colour)
       .text((datum) => datum.text);
 
+    const applyHighlight = () => {
+      const activeWord = interactive ? selectedWord : selectedWordOverride;
+      textSelection
+        .style("opacity", (datum) => (activeWord === null || datum.text === activeWord ? 1 : 0.35))
+        .style("font-weight", (datum) => (datum.text === activeWord ? "bold" : "normal"));
+    };
+
+    applyHighlight();
+
     if (interactive) {
       const setSelectedWord = (nextWord) => {
         selectedWord = nextWord;
         applyHighlight();
         onSelectWord(nextWord);
       };
-
-      const applyHighlight = () => {
-        textSelection
-          .style("opacity", (datum) => (selectedWord === null || datum.text === selectedWord ? 1 : 0.35))
-          .style("font-weight", (datum) => (datum.text === selectedWord ? "bold" : "normal"));
-      };
-
-      applyHighlight();
 
       svg.on("click", (event) => {
         if (event.target.closest("text")) {
@@ -103,17 +231,33 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
     return svg.node();
   }
 
-  function currentSvgString() {
+  function currentSvgString(selectedWordOverride = selectedWord) {
     if (!lastLayout) {
       return null;
     }
 
     const holder = document.createElement("div");
-    renderSvg(holder, lastLayout, lastSize[0], lastSize[1], lastFont, false);
+    renderSvg(holder, lastLayout, lastSize[0], lastSize[1], lastFont, lastShape, false, selectedWordOverride);
     const svg = holder.firstChild;
     svg.setAttribute("width", String(lastSize[0]));
     svg.setAttribute("height", String(lastSize[1]));
     return new XMLSerializer().serializeToString(svg);
+  }
+
+  function runLayoutAttempt(entries, layout, message, seed) {
+    return new Promise((resolve) => {
+      cloud()
+        .size(layout.size)
+        .words(entries.map((entry) => ({ ...entry })))
+        .padding(message.padding)
+        .spiral(layout.spiral)
+        .font(message.font)
+        .fontSize((datum) => datum.size)
+        .rotate((datum) => datum.rotate)
+        .random(mulberry32(seed))
+        .on("end", resolve)
+        .start();
+    });
   }
 
   function render(message) {
@@ -123,8 +267,8 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
     const width = container.clientWidth || 800;
     const height = container.clientHeight || 500;
     lastSize = [width, height];
-    lastMapping = message.mapping;
     lastFont = message.font;
+    lastShape = message.shape ?? lastShape;
     if (message.selectedWord !== undefined) {
       selectedWord = message.selectedWord;
     }
@@ -136,6 +280,7 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
       return;
     }
 
+    const layout = getLayoutConfig(lastShape, width, height);
     const maxFrequency = Math.max(...message.freq);
     const minFrequency = Math.min(...message.freq);
     const wordCount = message.words.length;
@@ -168,35 +313,35 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
         return;
       }
 
-      cloud()
-        .size([width * 0.95, height * 0.95])
-        .words(entries)
-        .padding(message.padding)
-        .spiral("archimedean")
-        .font(message.font)
-        .fontSize((datum) => datum.size)
-        .rotate((datum) => datum.rotate)
-        .random(mulberry32(42))
-        .on("end", (placed) => {
-          if (renderId !== currentRenderId) {
-            return;
-          }
+      Promise.all([
+        runLayoutAttempt(entries, layout, message, PRIMARY_LAYOUT_SEED),
+        runLayoutAttempt(entries, layout, message, SECOND_PASS_LAYOUT_SEED),
+      ]).then((attempts) => {
+        if (renderId !== currentRenderId) {
+          return;
+        }
 
-          lastLayout = placed;
-          if (selectedWord !== null && !placed.some((datum) => datum.text === selectedWord)) {
-            selectedWord = null;
-            onSelectWord(null);
-          }
-          renderSvg(container, placed, width, height, message.font, true);
-          const dropped = entries.length - placed.length;
-          note.textContent = dropped > 0 ? `${dropped} word(s) could not be placed and are not shown.` : "";
-        })
-        .start();
+        const { filtered } = pickBestLayout(attempts, layout);
+        lastLayout = filtered;
+        if (selectedWord !== null && !filtered.some((datum) => datum.text === selectedWord)) {
+          selectedWord = null;
+          onSelectWord(null);
+        }
+        renderSvg(container, filtered, width, height, message.font, lastShape, true);
+        const dropped = entries.length - filtered.length;
+        note.textContent = dropped > 0
+          ? `${dropped} word(s) could not be placed in the final masked layout and are not shown.`
+          : "";
+      });
     });
   }
 
+  function getSvgString(selectedWordOverride = selectedWord) {
+    return currentSvgString(selectedWordOverride);
+  }
+
   function exportSvg() {
-    const svgString = currentSvgString();
+    const svgString = getSvgString(null);
     if (!svgString) {
       return;
     }
@@ -205,7 +350,7 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
   }
 
   function exportPng() {
-    const svgString = currentSvgString();
+    const svgString = getSvgString(null);
     if (!svgString) {
       return;
     }
@@ -234,197 +379,10 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
     image.src = svgUrl;
   }
 
-  function exportHtml() {
-    if (!lastLayout) {
-      return;
-    }
-
-    const svgString = currentSvgString();
-    const exportStyles = `
-      :root {
-        color-scheme: light;
-        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        line-height: 1.5;
-        color: #1f2933;
-        background: #f5f7fa;
-      }
-      * { box-sizing: border-box; }
-      body { margin: 0; background: #f5f7fa; }
-      button { font: inherit; }
-      .page-shell { max-width: 1200px; margin: 0 auto; padding: 1.5rem; }
-      .content-card {
-        background: #ffffff;
-        border: 1px solid #d9e2ec;
-        border-radius: 12px;
-        padding: 1rem;
-        box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
-      }
-      .cloud-surface {
-        width: 100%;
-        height: 500px;
-        border-radius: 10px;
-        background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
-        overflow: hidden;
-      }
-      .cloud-surface svg { width: 100%; height: 100%; }
-      .cloud-note {
-        min-height: 1.25rem;
-        margin-top: 0.5rem;
-        color: #7b8794;
-        font-size: 0.9rem;
-      }
-      .statements-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 1rem;
-      }
-      .statements-header h2 {
-        margin: 0;
-        font-size: 1.1rem;
-      }
-      .statements-empty {
-        margin-top: 1rem;
-        color: #52606d;
-      }
-      .statements-table {
-        width: 100%;
-        border-collapse: collapse;
-        margin-top: 1rem;
-        display: none;
-      }
-      .statements-table th,
-      .statements-table td {
-        text-align: left;
-        vertical-align: top;
-        padding: 0.75rem;
-        border-bottom: 1px solid #e4e7eb;
-      }
-      .statements-table tbody tr:nth-child(odd) { background: #f8fafc; }
-      button {
-        width: auto;
-        padding: 0.6rem 0.75rem;
-        border: 1px solid #bcccdc;
-        border-radius: 8px;
-        background: #f8fafc;
-        cursor: pointer;
-        white-space: nowrap;
-      }
-      button:disabled {
-        cursor: not-allowed;
-        opacity: 0.65;
-      }
-      button:hover:enabled { background: #eef2f7; }
-      @media (max-width: 900px) {
-        .page-shell { padding: 1rem; }
-        .statements-header { flex-direction: column; align-items: flex-start; }
-      }
-    `;
-
-    const clickScript = [
-      `const mapping = ${JSON.stringify(lastMapping)};`,
-      `let selectedWord = ${JSON.stringify(selectedWord)};`,
-      "let statementSortAscending = true;",
-      "const svg = document.querySelector('.cloud-surface svg');",
-      "const words = Array.from(svg.querySelectorAll('text'));",
-      "const statementRows = document.getElementById('statement_rows');",
-      "const statementsEmpty = document.getElementById('statements_empty');",
-      "const statementsTable = document.querySelector('.statements-table');",
-      "const sortButton = document.getElementById('sort_statements');",
-      "function applyHighlight() {",
-      "  words.forEach(function (text) {",
-      "    const isSelected = text.textContent.trim() === selectedWord;",
-      "    text.style.opacity = selectedWord === null || isSelected ? '1' : '0.35';",
-      "    text.style.fontWeight = isSelected ? 'bold' : 'normal';",
-      "    text.style.cursor = 'pointer';",
-      "  });",
-      "}",
-      "function renderStatements() {",
-      "  const statements = selectedWord ? [...(mapping[selectedWord] || [])] : [];",
-      "  sortButton.disabled = statements.length === 0;",
-      "  sortButton.textContent = statementSortAscending ? 'Sort Z–A' : 'Sort A–Z';",
-      "  if (!statements.length) {",
-      "    statementsEmpty.textContent = selectedWord ? 'No statements found.' : 'Click a word above.';",
-      "    statementsEmpty.style.display = 'block';",
-      "    statementsTable.style.display = 'none';",
-      "    statementRows.replaceChildren();",
-      "    return;",
-      "  }",
-      "  statements.sort(function (left, right) {",
-      "    const comparison = left.localeCompare(right);",
-      "    return statementSortAscending ? comparison : -comparison;",
-      "  });",
-      "  const fragment = document.createDocumentFragment();",
-      "  statements.forEach(function (statement) {",
-      "    const row = document.createElement('tr');",
-      "    const cell = document.createElement('td');",
-      "    cell.textContent = statement;",
-      "    row.appendChild(cell);",
-      "    fragment.appendChild(row);",
-      "  });",
-      "  statementRows.replaceChildren(fragment);",
-      "  statementsEmpty.style.display = 'none';",
-      "  statementsTable.style.display = 'table';",
-      "}",
-      "words.forEach(function (text) {",
-      "  text.addEventListener('mouseover', function () {",
-      "    text.style.opacity = '0.6';",
-      "  });",
-      "  text.addEventListener('mouseout', applyHighlight);",
-      "  text.addEventListener('click', function (event) {",
-      "    event.stopPropagation();",
-      "    selectedWord = text.textContent.trim();",
-      "    applyHighlight();",
-      "    renderStatements();",
-      "  });",
-      "});",
-      "svg.addEventListener('click', function (event) {",
-      "  if (event.target.closest('text')) {",
-      "    return;",
-      "  }",
-      "  selectedWord = null;",
-      "  applyHighlight();",
-      "  renderStatements();",
-      "});",
-      "sortButton.addEventListener('click', function () {",
-      "  statementSortAscending = !statementSortAscending;",
-      "  renderStatements();",
-      "});",
-      "applyHighlight();",
-      "renderStatements();",
-    ].join("\n");
-
-    const fontsHref =
-      "https://fonts.googleapis.com/css2?family=Lora&family=Merriweather&family=Montserrat&family=Oswald&family=Source+Sans+3&display=swap";
-
-    const html =
-      "<!doctype html><html><head><meta charset='utf-8'>" +
-      "<meta name='viewport' content='width=device-width, initial-scale=1.0'>" +
-      `<link rel='stylesheet' href='${fontsHref}'>` +
-      `<title>Wordcloud export</title><style>${exportStyles}</style></head><body>` +
-      "<div class='page-shell'><section class='content-card'>" +
-      "<h1>Wordcloud</h1>" +
-      "<p>Click a word in the cloud to see its statements below.</p>" +
-      `<div class='cloud-surface'>${svgString}</div>` +
-      `<div class='cloud-note'>${escapeHtml(note?.textContent ?? "")}</div>` +
-      "<hr />" +
-      "<div class='statements-header'>" +
-      "<h2>Click a word in the cloud to see its statements</h2>" +
-      "<button id='sort_statements' type='button' disabled>Sort A–Z</button>" +
-      "</div>" +
-      "<div id='statements_empty' class='statements-empty'>Click a word above.</div>" +
-      "<table class='statements-table' aria-live='polite'><thead><tr><th scope='col'>Statement</th></tr></thead><tbody id='statement_rows'></tbody></table>" +
-      "</section></div>" +
-      `<script>${clickScript}<\/script>` +
-      "</body></html>";
-
-    triggerDownload(new Blob([html], { type: "text/html" }), "wordcloud_export.html");
-  }
-
   return {
     render,
+    getSvgString,
     exportSvg,
     exportPng,
-    exportHtml,
   };
 }
