@@ -27,8 +27,10 @@ const state = {
   columns: [],
   selectedColumn: "",
   maxWords: 100,
+  sizeEmphasis: 1,
   fontFamily: "sans-serif",
   palette: "Viridis",
+  colourEmphasis: 1,
   shape: "oval",
   padding: 1,
   rotateProp: 0,
@@ -43,8 +45,12 @@ const elements = {
   fileInput: document.getElementById("data_file"),
   columnSelect: document.getElementById("statement_column"),
   maxWordsInput: document.getElementById("max_words"),
+  sizeEmphasisInput: document.getElementById("size_emphasis"),
+  sizeEmphasisValue: document.getElementById("size_emphasis_value"),
   fontSelect: document.getElementById("font_family"),
   paletteSelect: document.getElementById("palette"),
+  colourEmphasisInput: document.getElementById("colour_emphasis"),
+  colourEmphasisValue: document.getElementById("colour_emphasis_value"),
   shapeSelect: document.getElementById("shape"),
   paddingInput: document.getElementById("padding"),
   paddingValue: document.getElementById("padding_value"),
@@ -89,6 +95,8 @@ function populateStaticOptions() {
   elements.fontSelect.value = state.fontFamily;
   elements.paletteSelect.value = state.palette;
   elements.shapeSelect.value = state.shape;
+  elements.sizeEmphasisValue.value = formatSliderValue(state.sizeEmphasis);
+  elements.colourEmphasisValue.value = formatSliderValue(state.colourEmphasis);
   elements.paddingValue.value = String(state.padding);
   elements.rotateValue.value = String(state.rotateProp);
 }
@@ -165,9 +173,10 @@ function isTextColumn(records, column) {
   return values.every((value) => typeof value === "string");
 }
 
-function paletteColours(name, values) {
+function paletteColours(name, values, emphasis = 1) {
   const min = Math.min(...values);
   const max = Math.max(...values);
+  const emphasisExponent = emphasis / 2;
   const interpolator = {
     Viridis: d3.interpolateViridis,
     Magma: d3.interpolateMagma,
@@ -182,8 +191,9 @@ function paletteColours(name, values) {
 
   return values.map((value) => {
     const ratio = (value - min) / (max - min);
-    const scaled = 0.1 + ratio * 0.8;
-    return interpolator(name === "Viridis" ? scaled : name === "Magma" ? 0.15 + ratio * 0.7 : scaled);
+    const adjustedRatio = Math.pow(ratio, emphasisExponent);
+    const scaled = 0.1 + adjustedRatio * 0.8;
+    return interpolator(name === "Viridis" ? scaled : name === "Magma" ? 0.15 + adjustedRatio * 0.7 : scaled);
   });
 }
 
@@ -333,7 +343,7 @@ function renderCloud() {
 
   const words = state.termFrequency.map((entry) => entry.word);
   const frequencies = state.termFrequency.map((entry) => entry.freq);
-  const colours = paletteColours(state.palette, frequencies.map((frequency) => Math.sqrt(frequency)));
+  const colours = paletteColours(state.palette, frequencies, state.colourEmphasis);
   const mapping = Object.fromEntries(state.statementMap.entries());
 
   renderer.render({
@@ -342,6 +352,7 @@ function renderCloud() {
     colours,
     mapping,
     font: state.fontFamily,
+    sizeEmphasis: state.sizeEmphasis,
     shape: state.shape,
     padding: state.padding,
     rotateProp: state.rotateProp,
@@ -561,12 +572,22 @@ function attachEvents() {
     state.selectedWord = null;
     renderApp();
   });
+  elements.sizeEmphasisInput.addEventListener("input", (event) => {
+    state.sizeEmphasis = Number(event.target.value);
+    elements.sizeEmphasisValue.value = formatSliderValue(state.sizeEmphasis);
+    renderApp();
+  });
   elements.fontSelect.addEventListener("change", (event) => {
     state.fontFamily = event.target.value;
     renderApp();
   });
   elements.paletteSelect.addEventListener("change", (event) => {
     state.palette = event.target.value;
+    renderApp();
+  });
+  elements.colourEmphasisInput.addEventListener("input", (event) => {
+    state.colourEmphasis = Number(event.target.value);
+    elements.colourEmphasisValue.value = formatSliderValue(state.colourEmphasis);
     renderApp();
   });
   elements.shapeSelect.addEventListener("change", (event) => {
