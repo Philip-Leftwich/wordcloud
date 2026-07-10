@@ -4,6 +4,11 @@ import cloud from "d3-cloud";
 const LAYOUT_SCALE_FACTOR = 0.95;
 const PRIMARY_LAYOUT_SEED = 42;
 const SECOND_PASS_LAYOUT_SEED = 4242;
+const MAX_MANDATORY_WORDS = 5;
+const LAYOUT_RETRY_MULTIPLIERS = [1, 0.94, 0.88, 0.82, 0.76];
+const MAX_PADDING_REDUCTION = 2;
+const MIN_LAYOUT_FONT_SIZE = 8;
+const MIN_ROTATION_START_INDEX = 3;
 
 function mulberry32(seed) {
   return function random() {
@@ -112,20 +117,75 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
     return wordPoints(word, size).every(([x, y]) => mask(x, y));
   }
 
-  function pickBestLayout(attempts, layout) {
+  function compareLayoutSummaries(left, right) {
+    if (left.missingMandatoryCount !== right.missingMandatoryCount) {
+      return left.missingMandatoryCount < right.missingMandatoryCount ? left : right;
+    }
+    if (left.mandatoryScore !== right.mandatoryScore) {
+      return left.mandatoryScore > right.mandatoryScore ? left : right;
+    }
+    if (left.totalScore !== right.totalScore) {
+      return left.totalScore > right.totalScore ? left : right;
+    }
+    if (left.filtered.length !== right.filtered.length) {
+      return left.filtered.length > right.filtered.length ? left : right;
+    }
+    if (left.placed.length !== right.placed.length) {
+      return left.placed.length > right.placed.length ? left : right;
+    }
+    return left;
+  }
+
+  function summariseLayout(placed, layout, mandatoryWords, mandatoryWeights, totalNonMandatoryCount) {
+    const filtered = placed.filter((word) => isWordInsideMask(word, layout.mask, layout.size));
+    const visibleWords = new Set(filtered.map((word) => word.text));
+    const mandatoryScore = mandatoryWords.reduce((score, word, index) => (
+      visibleWords.has(word) ? score + mandatoryWeights[index] : score
+    ), 0);
+    const totalScore = filtered.reduce((score, word) => score + word.priorityScore, 0);
+    const missingMandatoryCount = mandatoryWords.filter((word) => !visibleWords.has(word)).length;
+    const nonMandatoryVisibleCount = filtered.reduce((count, word) => count + Number(!word.lockRotation), 0);
+    const nonMandatoryHiddenCount = totalNonMandatoryCount - nonMandatoryVisibleCount;
+    return {
+      placed,
+      filtered,
+      visibleWords,
+      mandatoryScore,
+      totalScore,
+      missingMandatoryCount,
+      nonMandatoryHiddenCount,
+    };
+  }
+
+  function pickBestLayout(attempts, layout, mandatoryWords, mandatoryWeights, totalNonMandatoryCount) {
     return attempts.reduce(
-      (best, placed) => {
-        const filtered = placed.filter((word) => isWordInsideMask(word, layout.mask, layout.size));
-        if (
-          filtered.length > best.filtered.length ||
-          (filtered.length === best.filtered.length && placed.length > best.placed.length)
-        ) {
-          return { placed, filtered };
-        }
-        return best;
-      },
-      { placed: [], filtered: [] }
+      (best, placed) => compareLayoutSummaries(
+        best,
+        summariseLayout(placed, layout, mandatoryWords, mandatoryWeights, totalNonMandatoryCount)
+      ),
+      {
+        placed: [],
+        filtered: [],
+        visibleWords: new Set(),
+        mandatoryScore: -1,
+        totalScore: -1,
+        missingMandatoryCount: Number.POSITIVE_INFINITY,
+        nonMandatoryHiddenCount: totalNonMandatoryCount,
+      }
     );
+  }
+
+  function layoutRetryPadding(basePadding, retryIndex) {
+    return Math.max(0, basePadding - Math.min(retryIndex, MAX_PADDING_REDUCTION));
+  }
+
+  function tuneEntries(entries, retryIndex) {
+    const sizeMultiplier = LAYOUT_RETRY_MULTIPLIERS[retryIndex];
+    return entries.map((entry) => ({
+      ...entry,
+      size: Math.max(MIN_LAYOUT_FONT_SIZE, entry.baseSize * sizeMultiplier),
+      rotate: entry.lockRotation ? 0 : entry.rotate,
+    }));
   }
 
   function appendClipPath(svg, shape, width, height) {
@@ -248,20 +308,42 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
     return new XMLSerializer().serializeToString(svg);
   }
 
-  function runLayoutAttempt(entries, layout, message, seed) {
+  function runLayoutAttempt(entries, layout, { font, padding }, seed) {
     return new Promise((resolve) => {
       cloud()
         .size(layout.size)
         .words(entries.map((entry) => ({ ...entry })))
-        .padding(message.padding)
+        .padding(padding)
         .spiral(layout.spiral)
-        .font(message.font)
+        .font(font)
         .fontSize((datum) => datum.size)
         .rotate((datum) => datum.rotate)
         .random(mulberry32(seed))
         .on("end", resolve)
         .start();
     });
+  }
+
+  async function resolveLayout(entries, layout, message, mandatoryWords, mandatoryWeights) {
+    let best = null;
+    const totalNonMandatoryCount = Math.max(0, entries.length - mandatoryWords.length);
+
+    for (let retryIndex = 0; retryIndex < LAYOUT_RETRY_MULTIPLIERS.length; retryIndex += 1) {
+      const tunedEntries = tuneEntries(entries, retryIndex);
+      const padding = layoutRetryPadding(message.padding, retryIndex);
+      const seedOffset = retryIndex * 100;
+      const attempts = await Promise.all([
+        runLayoutAttempt(tunedEntries, layout, { font: message.font, padding }, PRIMARY_LAYOUT_SEED + seedOffset),
+        runLayoutAttempt(tunedEntries, layout, { font: message.font, padding }, SECOND_PASS_LAYOUT_SEED + seedOffset),
+      ]);
+      const candidate = pickBestLayout(attempts, layout, mandatoryWords, mandatoryWeights, totalNonMandatoryCount);
+      best = best === null ? candidate : compareLayoutSummaries(best, candidate);
+      if (candidate.missingMandatoryCount === 0) {
+        return candidate;
+      }
+    }
+
+    return best;
   }
 
   function render(message) {
@@ -295,46 +377,54 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
         ? () => (minSize + maxSize) / 2
         : d3.scaleSqrt().domain([minFrequency, maxFrequency]).range([minSize, maxSize]);
 
+    const mandatoryCount = Math.min(wordCount, MAX_MANDATORY_WORDS);
     const rotationFlags = new Array(wordCount).fill(0);
     if (message.rotateProp > 0 && wordCount > 4) {
       const step = Math.round(1 / message.rotateProp);
-      for (let index = 3; index < wordCount; index += 1) {
-        if ((index - 3) % step === 0) {
+      const rotationStart = Math.max(MIN_ROTATION_START_INDEX, mandatoryCount);
+      for (let index = rotationStart; index < wordCount; index += 1) {
+        if ((index - rotationStart) % step === 0) {
           rotationFlags[index] = 90;
         }
       }
     }
 
-    const entries = message.words.map((word, index) => ({
-      text: word,
-      size: sizeScale(message.freq[index]),
-      colour: message.colours[index],
-      rotate: rotationFlags[index],
-    }));
+    const entries = message.words.map((word, index) => {
+      const size = sizeScale(message.freq[index]);
+      return {
+        text: word,
+        baseSize: size,
+        size,
+        colour: message.colours[index],
+        rotate: rotationFlags[index],
+        lockRotation: index < mandatoryCount,
+        priorityScore: wordCount - index,
+      };
+    });
+    const mandatoryWords = entries.slice(0, mandatoryCount).map((entry) => entry.text);
+    // Exponential weights make an earlier mandatory word outweigh any combination
+    // of later mandatory words so the highest-frequency terms dominate tie-breaks.
+    const mandatoryWeights = mandatoryWords.map((_, index) => 2 ** (mandatoryWords.length - index - 1));
 
     document.fonts.ready.then(() => {
       if (renderId !== currentRenderId) {
         return;
       }
 
-      Promise.all([
-        runLayoutAttempt(entries, layout, message, PRIMARY_LAYOUT_SEED),
-        runLayoutAttempt(entries, layout, message, SECOND_PASS_LAYOUT_SEED),
-      ]).then((attempts) => {
+      resolveLayout(entries, layout, message, mandatoryWords, mandatoryWeights).then((bestLayout) => {
         if (renderId !== currentRenderId) {
           return;
         }
 
-        const { filtered } = pickBestLayout(attempts, layout);
+        const { filtered, nonMandatoryHiddenCount } = bestLayout;
         lastLayout = filtered;
         if (selectedWord !== null && !filtered.some((datum) => datum.text === selectedWord)) {
           selectedWord = null;
           onSelectWord(null);
         }
         renderSvg(container, filtered, width, height, message.font, lastShape, true);
-        const dropped = entries.length - filtered.length;
-        note.textContent = dropped > 0
-          ? `${dropped} word(s) could not be placed in the final masked layout and are not shown.`
+        note.textContent = nonMandatoryHiddenCount > 0
+          ? `${nonMandatoryHiddenCount} lower-priority word(s) could not be placed in the final masked layout and are not shown.`
           : "";
       });
     });
