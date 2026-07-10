@@ -14,6 +14,11 @@ const FONT_CHOICES = [
 ];
 
 const PALETTE_CHOICES = ["Viridis", "Magma", "Blues", "Warm", "Steel"];
+const SHAPE_CHOICES = [
+  { label: "Oval", value: "oval" },
+  { label: "Circle", value: "circle" },
+  { label: "Square", value: "square" },
+];
 const STOP_WORDS = new Set(stopwords.en.map((word) => String(word).toLowerCase()));
 
 const state = {
@@ -23,8 +28,10 @@ const state = {
   maxWords: 100,
   fontFamily: "sans-serif",
   palette: "Viridis",
+  shape: "oval",
   padding: 1,
   rotateProp: 0,
+  sizeEmphasis: 1,
   uploadError: "",
   selectedWord: null,
   statementSortAscending: true,
@@ -38,10 +45,13 @@ const elements = {
   maxWordsInput: document.getElementById("max_words"),
   fontSelect: document.getElementById("font_family"),
   paletteSelect: document.getElementById("palette"),
+  shapeSelect: document.getElementById("cloud_shape"),
   paddingInput: document.getElementById("padding"),
   paddingValue: document.getElementById("padding_value"),
   rotateInput: document.getElementById("rotate_prop"),
   rotateValue: document.getElementById("rotate_prop_value"),
+  sizeEmphasisInput: document.getElementById("size_emphasis"),
+  sizeEmphasisValue: document.getElementById("size_emphasis_value"),
   uploadMessage: document.getElementById("upload_message"),
   cloudContainer: document.getElementById("cloud_container"),
   cloudNote: document.getElementById("cloud_note"),
@@ -74,11 +84,16 @@ function populateStaticOptions() {
   elements.paletteSelect.innerHTML = PALETTE_CHOICES.map(
     (choice) => `<option value="${choice}">${choice}</option>`
   ).join("");
+  elements.shapeSelect.innerHTML = SHAPE_CHOICES.map(
+    (choice) => `<option value="${choice.value}">${choice.label}</option>`
+  ).join("");
 
   elements.fontSelect.value = state.fontFamily;
   elements.paletteSelect.value = state.palette;
+  elements.shapeSelect.value = state.shape;
   elements.paddingValue.value = String(state.padding);
   elements.rotateValue.value = String(state.rotateProp);
+  elements.sizeEmphasisValue.value = String(state.sizeEmphasis);
 }
 
 function dedupeHeaders(headers) {
@@ -311,8 +326,10 @@ function renderCloud() {
       colours: [],
       mapping: {},
       font: state.fontFamily,
+      shape: state.shape,
       padding: state.padding,
       rotateProp: state.rotateProp,
+      emphasis: state.sizeEmphasis,
       selectedWord: null,
     });
     return;
@@ -329,8 +346,10 @@ function renderCloud() {
     colours,
     mapping,
     font: state.fontFamily,
+    shape: state.shape,
     padding: state.padding,
     rotateProp: state.rotateProp,
+    emphasis: state.sizeEmphasis,
     selectedWord: state.selectedWord,
   });
 }
@@ -393,6 +412,10 @@ function attachEvents() {
     state.palette = event.target.value;
     renderApp();
   });
+  elements.shapeSelect.addEventListener("change", (event) => {
+    state.shape = event.target.value;
+    renderApp();
+  });
   elements.paddingInput.addEventListener("input", (event) => {
     state.padding = Number(event.target.value);
     elements.paddingValue.value = formatSliderValue(state.padding);
@@ -401,6 +424,11 @@ function attachEvents() {
   elements.rotateInput.addEventListener("input", (event) => {
     state.rotateProp = Number(event.target.value);
     elements.rotateValue.value = formatSliderValue(state.rotateProp);
+    renderApp();
+  });
+  elements.sizeEmphasisInput.addEventListener("input", (event) => {
+    state.sizeEmphasis = Number(event.target.value);
+    elements.sizeEmphasisValue.value = formatSliderValue(state.sizeEmphasis);
     renderApp();
   });
   elements.sortStatementsButton.addEventListener("click", () => {
