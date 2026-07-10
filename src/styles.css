@@ -58,6 +58,14 @@ select {
   align-items: start;
 }
 
+.standalone-export .app-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.standalone-export .content-card {
+  grid-column: 1 / -1;
+}
+
 .controls-card,
 .content-card {
   background: #ffffff;
