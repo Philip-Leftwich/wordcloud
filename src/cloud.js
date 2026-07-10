@@ -135,20 +135,30 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
     return left;
   }
 
-  function summariseLayout(placed, layout, mandatoryWords) {
+  function summariseLayout(placed, layout, mandatoryWords, totalNonMandatoryCount) {
     const filtered = placed.filter((word) => isWordInsideMask(word, layout.mask, layout.size));
     const visibleWords = new Set(filtered.map((word) => word.text));
     const mandatoryScore = mandatoryWords.reduce((score, word, index) => (
-      visibleWords.has(word) ? score + (mandatoryWords.length - index) : score
+      visibleWords.has(word) ? score + 2 ** (mandatoryWords.length - index - 1) : score
     ), 0);
     const totalScore = filtered.reduce((score, word) => score + word.priorityScore, 0);
     const missingMandatoryCount = mandatoryWords.filter((word) => !visibleWords.has(word)).length;
-    return { placed, filtered, visibleWords, mandatoryScore, totalScore, missingMandatoryCount };
+    const nonMandatoryVisibleCount = filtered.reduce((count, word) => count + Number(!word.lockRotation), 0);
+    const nonMandatoryHiddenCount = Math.max(0, totalNonMandatoryCount - nonMandatoryVisibleCount);
+    return {
+      placed,
+      filtered,
+      visibleWords,
+      mandatoryScore,
+      totalScore,
+      missingMandatoryCount,
+      nonMandatoryHiddenCount,
+    };
   }
 
-  function pickBestLayout(attempts, layout, mandatoryWords) {
+  function pickBestLayout(attempts, layout, mandatoryWords, totalNonMandatoryCount) {
     return attempts.reduce(
-      (best, placed) => compareLayoutSummaries(best, summariseLayout(placed, layout, mandatoryWords)),
+      (best, placed) => compareLayoutSummaries(best, summariseLayout(placed, layout, mandatoryWords, totalNonMandatoryCount)),
       {
         placed: [],
         filtered: [],
@@ -156,6 +166,7 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
         mandatoryScore: -1,
         totalScore: -1,
         missingMandatoryCount: Number.POSITIVE_INFINITY,
+        nonMandatoryHiddenCount: totalNonMandatoryCount,
       }
     );
   }
@@ -311,6 +322,7 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
 
   async function resolveLayout(entries, layout, message, mandatoryWords) {
     let best = null;
+    const totalNonMandatoryCount = Math.max(0, entries.length - mandatoryWords.length);
 
     for (let retryIndex = 0; retryIndex < LAYOUT_RETRY_MULTIPLIERS.length; retryIndex += 1) {
       const tunedEntries = tuneEntries(entries, retryIndex);
@@ -320,7 +332,7 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
         runLayoutAttempt(tunedEntries, layout, { font: message.font, padding }, PRIMARY_LAYOUT_SEED + seedOffset),
         runLayoutAttempt(tunedEntries, layout, { font: message.font, padding }, SECOND_PASS_LAYOUT_SEED + seedOffset),
       ]);
-      const candidate = pickBestLayout(attempts, layout, mandatoryWords);
+      const candidate = pickBestLayout(attempts, layout, mandatoryWords, totalNonMandatoryCount);
       best = best === null ? candidate : compareLayoutSummaries(best, candidate);
       if (candidate.missingMandatoryCount === 0) {
         return candidate;
@@ -397,16 +409,15 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
           return;
         }
 
-        const { filtered, visibleWords } = bestLayout;
+        const { filtered, nonMandatoryHiddenCount } = bestLayout;
         lastLayout = filtered;
         if (selectedWord !== null && !filtered.some((datum) => datum.text === selectedWord)) {
           selectedWord = null;
           onSelectWord(null);
         }
         renderSvg(container, filtered, width, height, message.font, lastShape, true);
-        const dropped = entries.slice(mandatoryCount).filter((entry) => !visibleWords.has(entry.text)).length;
-        note.textContent = dropped > 0
-          ? `${dropped} lower-priority word(s) could not be placed in the final masked layout and are not shown.`
+        note.textContent = nonMandatoryHiddenCount > 0
+          ? `${nonMandatoryHiddenCount} lower-priority word(s) could not be placed in the final masked layout and are not shown.`
           : "";
       });
     });
