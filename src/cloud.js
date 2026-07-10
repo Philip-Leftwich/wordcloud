@@ -6,6 +6,8 @@ const PRIMARY_LAYOUT_SEED = 42;
 const SECOND_PASS_LAYOUT_SEED = 4242;
 const MAX_MANDATORY_WORDS = 5;
 const LAYOUT_RETRY_MULTIPLIERS = [1, 0.94, 0.88, 0.82, 0.76];
+const MAX_PADDING_REDUCTION = 2;
+const MIN_LAYOUT_FONT_SIZE = 8;
 
 function mulberry32(seed) {
   return function random() {
@@ -159,14 +161,14 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
   }
 
   function layoutRetryPadding(basePadding, retryIndex) {
-    return Math.max(0, basePadding - Math.min(retryIndex, 2));
+    return Math.max(0, basePadding - Math.min(retryIndex, MAX_PADDING_REDUCTION));
   }
 
   function tuneEntries(entries, retryIndex) {
     const sizeMultiplier = LAYOUT_RETRY_MULTIPLIERS[retryIndex] ?? 1;
     return entries.map((entry) => ({
       ...entry,
-      size: Math.max(8, entry.baseSize * sizeMultiplier),
+      size: Math.max(MIN_LAYOUT_FONT_SIZE, entry.baseSize * sizeMultiplier),
       rotate: entry.lockRotation ? 0 : entry.rotate,
     }));
   }
