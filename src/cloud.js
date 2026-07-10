@@ -47,7 +47,7 @@ function resolveLayoutOptions(shape, width, height) {
   return { size: [insetWidth, insetHeight], spiral: "archimedean" };
 }
 
-function createSizeScale(frequencies, height, wordCount, emphasis) {
+function createSizeScale(frequencies, height, wordCount, emphasis = 1) {
   const maxFrequency = Math.max(...frequencies);
   const minFrequency = Math.min(...frequencies);
   const maxSize = Math.min(90, (height / 5) * Math.sqrt(60 / Math.max(wordCount, 20)));
@@ -59,7 +59,7 @@ function createSizeScale(frequencies, height, wordCount, emphasis) {
 
   const domainWidth = maxFrequency - minFrequency;
   // Keep the emphasis slider within its UI bounds so layout behaviour stays predictable.
-  const scaleExponent = clamp(emphasis ?? 1, SIZE_EMPHASIS_RANGE.min, SIZE_EMPHASIS_RANGE.max);
+  const scaleExponent = clamp(emphasis, SIZE_EMPHASIS_RANGE.min, SIZE_EMPHASIS_RANGE.max);
 
   return (frequency) => {
     const ratio = (frequency - minFrequency) / domainWidth;
@@ -68,7 +68,7 @@ function createSizeScale(frequencies, height, wordCount, emphasis) {
 }
 
 function canShrinkFurther(entries, scaleFactor, minimumSize) {
-  return entries.some((entry) => entry.baseSize * scaleFactor > minimumSize);
+  return entries.some((entry) => entry.initialSize * scaleFactor > minimumSize);
 }
 
 export function createCloudRenderer({ container, note, onSelectWord }) {
@@ -176,7 +176,7 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
 
     const entries = message.words.map((word, index) => ({
       text: word,
-      baseSize: sizeScale(message.freq[index]),
+      initialSize: sizeScale(message.freq[index]),
       colour: message.colours[index],
       rotate: rotationFlags[index],
     }));
@@ -191,7 +191,7 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
       const runLayout = (scaleFactor, attemptsRemaining) => {
         const layoutWords = entries.map((entry) => ({
           text: entry.text,
-          size: Math.max(MINIMUM_RENDER_SIZE, entry.baseSize * scaleFactor),
+          size: Math.max(MINIMUM_RENDER_SIZE, entry.initialSize * scaleFactor),
           colour: entry.colour,
           rotate: entry.rotate,
         }));
