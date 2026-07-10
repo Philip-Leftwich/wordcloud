@@ -145,7 +145,7 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
     const totalScore = filtered.reduce((score, word) => score + word.priorityScore, 0);
     const missingMandatoryCount = mandatoryWords.filter((word) => !visibleWords.has(word)).length;
     const nonMandatoryVisibleCount = filtered.reduce((count, word) => count + Number(!word.lockRotation), 0);
-    const nonMandatoryHiddenCount = Math.max(0, totalNonMandatoryCount - nonMandatoryVisibleCount);
+    const nonMandatoryHiddenCount = totalNonMandatoryCount - nonMandatoryVisibleCount;
     return {
       placed,
       filtered,
@@ -402,6 +402,8 @@ export function createCloudRenderer({ container, note, onSelectWord }) {
       };
     });
     const mandatoryWords = entries.slice(0, mandatoryCount).map((entry) => entry.text);
+    // Exponential weights make an earlier mandatory word outweigh any combination
+    // of later mandatory words so the highest-frequency terms dominate tie-breaks.
     const mandatoryWeights = mandatoryWords.map((_, index) => 2 ** (mandatoryWords.length - index - 1));
 
     document.fonts.ready.then(() => {
