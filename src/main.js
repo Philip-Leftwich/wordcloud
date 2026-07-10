@@ -81,6 +81,14 @@ function formatSliderValue(value) {
   return Number(value).toString();
 }
 
+function visibleFrequencyLevelCount() {
+  return new Set(state.termFrequency.map((entry) => entry.freq)).size;
+}
+
+function emphasisControlsEnabled() {
+  return visibleFrequencyLevelCount() >= 3;
+}
+
 function populateStaticOptions() {
   elements.fontSelect.innerHTML = FONT_CHOICES.map(
     (choice) => `<option value="${choice.value}">${choice.label}</option>`
@@ -277,6 +285,13 @@ function renderUploadMessage() {
     return;
   }
 
+  if (state.records.length && state.selectedColumn && state.termFrequency.length > 0 && !emphasisControlsEnabled()) {
+    elements.uploadMessage.textContent =
+      "Relative size and colour emphasis only changes the cloud when the visible words span at least three different frequencies.";
+    elements.uploadMessage.classList.add("info");
+    return;
+  }
+
   elements.uploadMessage.textContent = "";
 }
 
@@ -290,6 +305,13 @@ function renderColumnOptions() {
   if (state.selectedColumn) {
     elements.columnSelect.value = state.selectedColumn;
   }
+}
+
+function renderControlStates() {
+  const enableEmphasisControls =
+    state.records.length > 0 && state.selectedColumn && isTextColumn(state.records, state.selectedColumn) && emphasisControlsEnabled();
+  elements.sizeEmphasisInput.disabled = !enableEmphasisControls;
+  elements.colourEmphasisInput.disabled = !enableEmphasisControls;
 }
 
 function renderStatements() {
@@ -525,6 +547,7 @@ function downloadStandaloneHtml() {
 function renderApp() {
   renderColumnOptions();
   computeData();
+  renderControlStates();
   renderUploadMessage();
   renderCloud();
   renderStatements();
