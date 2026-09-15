@@ -21,12 +21,15 @@ const SHAPE_CHOICES = [
   { label: "Square", value: "square" },
 ];
 const STOP_WORDS = new Set(stopwords.en.map((word) => String(word).toLowerCase()));
+const WORD_TOKEN_PATTERN = /[\p{L}']+/gu;
 
 const state = {
   records: [],
   columns: [],
   selectedColumn: "",
   maxWords: 100,
+  excludedWordsText: "",
+  excludedWords: new Set(),
   fontFamily: "sans-serif",
   palette: "Viridis",
   shape: "oval",
@@ -43,6 +46,7 @@ const elements = {
   fileInput: document.getElementById("data_file"),
   columnSelect: document.getElementById("statement_column"),
   maxWordsInput: document.getElementById("max_words"),
+  excludedWordsInput: document.getElementById("excluded_words"),
   fontSelect: document.getElementById("font_family"),
   paletteSelect: document.getElementById("palette"),
   shapeSelect: document.getElementById("shape"),
@@ -75,6 +79,10 @@ function formatSliderValue(value) {
   return Number(value).toString();
 }
 
+function parseExcludedWords(rawText) {
+  return new Set(rawText.toLowerCase().match(WORD_TOKEN_PATTERN) || []);
+}
+
 function populateStaticOptions() {
   elements.fontSelect.innerHTML = FONT_CHOICES.map(
     (choice) => `<option value="${choice.value}">${choice.label}</option>`
@@ -91,6 +99,7 @@ function populateStaticOptions() {
   elements.shapeSelect.value = state.shape;
   elements.paddingValue.value = String(state.padding);
   elements.rotateValue.value = String(state.rotateProp);
+  elements.excludedWordsInput.value = state.excludedWordsText;
 }
 
 function dedupeHeaders(headers) {
@@ -209,11 +218,11 @@ function computeData() {
       return;
     }
 
-    const matches = text.toLowerCase().match(/[\p{L}']+/gu) || [];
+    const matches = text.toLowerCase().match(WORD_TOKEN_PATTERN) || [];
     const statementWords = new Set();
 
     matches.forEach((word) => {
-      if (STOP_WORDS.has(word)) {
+      if (STOP_WORDS.has(word) || state.excludedWords.has(word)) {
         tokenIndex += 1;
         return;
       }
@@ -559,6 +568,11 @@ function attachEvents() {
     state.maxWords = Number.isFinite(nextValue) ? Math.min(300, Math.max(10, nextValue)) : 100;
     elements.maxWordsInput.value = String(state.maxWords);
     state.selectedWord = null;
+    renderApp();
+  });
+  elements.excludedWordsInput.addEventListener("change", (event) => {
+    state.excludedWordsText = event.target.value;
+    state.excludedWords = parseExcludedWords(state.excludedWordsText);
     renderApp();
   });
   elements.fontSelect.addEventListener("change", (event) => {
